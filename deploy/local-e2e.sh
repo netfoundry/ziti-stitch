@@ -12,8 +12,11 @@
 # Ports: A_CTRL_PORT=12910 A_ROUTER_PORT=30910 B_CTRL_PORT=12920 B_ROUTER_PORT=30920
 #
 # Network A (where clients are):          Network B (where the real service is):
-#   stitch-a  #stitch-hosts   binds echo    stitch-b  #stitch-dialers  dials echo
+#   stitch-a  #stitch-hosts   binds echo    stitch-b  #stitch-dialers  dials echo, renew
 #   client-a  #stitch-clients dials echo    host-b    #echo-hosts      binds echo
+#                                           renew-b   #renew-hosts     binds renew
+#                                             (only the e2e renewal test uses renew-b: renewing
+#                                              it invalidates the enrolled file's certificate)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -105,6 +108,7 @@ up() {
 
   log "configuring network A: stitch-a binds echo, client-a dials it"
   zt a create service echo -a stitched >/dev/null
+  zt a create service e2e -a stitched >/dev/null # for go test -tags e2e only
   zt a create service-policy stitch-hosts-bind Bind --identity-roles '#stitch-hosts' --service-roles '#stitched' >/dev/null
   zt a create service-policy stitch-clients-dial Dial --identity-roles '#stitch-clients' --service-roles '#stitched' >/dev/null
   create_identity a stitch-a stitch-hosts
@@ -112,10 +116,14 @@ up() {
 
   log "configuring network B: host-b binds echo, stitch-b dials it"
   zt b create service echo -a echo >/dev/null
+  zt b create service e2e -a echo >/dev/null # for go test -tags e2e only
   zt b create service-policy echo-hosts-bind Bind --identity-roles '#echo-hosts' --service-roles '#echo' >/dev/null
-  zt b create service-policy stitch-dialers-dial Dial --identity-roles '#stitch-dialers' --service-roles '#echo' >/dev/null
+  zt b create service-policy stitch-dialers-dial Dial --identity-roles '#stitch-dialers' --service-roles '#echo,#renew' >/dev/null
+  zt b create service renew -a renew >/dev/null
+  zt b create service-policy renew-hosts-bind Bind --identity-roles '#renew-hosts' --service-roles '#renew' >/dev/null
   create_identity b stitch-b stitch-dialers
   create_identity b host-b echo-hosts
+  create_identity b renew-b renew-hosts
 
   env_info
 }
@@ -132,6 +140,7 @@ Identities:
   $RUN_DIR/a/client-a.json   dials  A:echo
   $RUN_DIR/b/stitch-b.json   dials  B:echo
   $RUN_DIR/b/host-b.json     binds  B:echo
+  $RUN_DIR/b/renew-b.json    binds  B:renew  (go test -tags e2e ./... renews it)
 
 Logs: $RUN_DIR/*.log      Stop: $0 down
 EOF

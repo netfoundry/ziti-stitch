@@ -22,6 +22,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/netfoundry/ziti-stitch/internal/config"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -43,8 +45,19 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newVersionCmd())
+	var configDir string
+	root.PersistentFlags().StringVar(&configDir, "config-dir", "",
+		"config directory (default $"+config.EnvConfigDir+", else a per-OS location)")
+	root.AddCommand(newVersionCmd(), newRunCmd(&configDir))
 	return root
+}
+
+// resolveConfigDir returns the --config-dir value, or the default.
+func resolveConfigDir(flag string) (string, error) {
+	if flag != "" {
+		return flag, nil
+	}
+	return config.DefaultDir()
 }
 
 func newVersionCmd() *cobra.Command {

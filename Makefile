@@ -6,7 +6,7 @@ GOFILES = $(shell find . -name '*.go' -not -path './.git/*')
 
 export CGO_ENABLED := 0
 
-.PHONY: build build-all test check fmt fmt-check vet lint clean
+.PHONY: build build-all test e2e-test check fmt fmt-check vet lint clean
 
 build:
 	go build $(LDFLAGS) -o bin/ziti-stitch ./cmd/ziti-stitch
@@ -28,8 +28,10 @@ fmt-check:
 	@unformatted=$$(gofmt -l $(GOFILES)); \
 	if [ -n "$$unformatted" ]; then echo "Unformatted Go files (run 'make fmt'):"; echo "$$unformatted"; exit 1; fi
 
+# The e2e-tagged tests only build with the tag, so vet and lint both ways.
 vet:
 	go vet ./...
+	go vet -tags e2e ./...
 
 # staticcheck has to be built against this module's Go version; an older
 # binary panics with `invalid Go version` instead of reporting findings.
@@ -37,11 +39,16 @@ vet:
 # this module's own dependencies alone.
 lint:
 	go run $(STATICCHECK) ./...
+	go run $(STATICCHECK) -tags e2e ./...
 
 check: fmt-check vet lint
 
 test:
 	go test ./...
+
+# Integration tests against the local networks: ./deploy/local-e2e.sh up first.
+e2e-test:
+	ZITI_STITCH_E2E_DIR=$(CURDIR)/.local-e2e go test -tags e2e -count=1 ./...
 
 clean:
 	rm -rf bin dist
