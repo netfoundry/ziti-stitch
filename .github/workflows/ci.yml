@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+# Runner images are pinned so that an image change (ubuntu-latest moves to
+# Ubuntu 26 in October 2026) shows up as a deliberate edit here, not as a
+# surprise failure.
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,7 +20,7 @@ concurrency:
 jobs:
   check:
     name: lint and unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -27,7 +31,7 @@ jobs:
 
   build:
     name: build every release target
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -37,7 +41,7 @@ jobs:
 
   windows:
     name: unit tests on Windows
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -47,7 +51,7 @@ jobs:
 
   e2e:
     name: two networks, OpenZiti ${{ matrix.ziti }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -81,7 +85,7 @@ jobs:
     # Only for a version tag, and only once every other job has passed.
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [check, build, windows, e2e]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write # create the GitHub release and upload its files
     steps:
