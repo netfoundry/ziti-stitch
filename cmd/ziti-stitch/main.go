@@ -63,6 +63,7 @@ func newRootCmd() *cobra.Command {
 		newNetworkCmd(&configDir),
 		newStitchCmd(&configDir),
 		newValidateCmd(&configDir),
+		newServiceCmd(&configDir),
 		newVersionCmd(),
 	)
 	return root

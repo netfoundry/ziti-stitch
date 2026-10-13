@@ -18,13 +18,19 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
+	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
+	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
 	"github.com/netfoundry/ziti-stitch/internal/runner"
@@ -35,7 +41,8 @@ import (
 const drainTimeout = 30 * time.Second
 
 func newRunCmd(configDir *string) *cobra.Command {
-	return &cobra.Command{
+	var logFile string
+	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run every enabled stitch until stopped",
 		Long: `Run every enabled stitch until interrupted (SIGINT or SIGTERM).
@@ -43,7 +50,9 @@ func newRunCmd(configDir *string) *cobra.Command {
 Changes to the config directory, from the CLI or by hand, are applied as
 they happen (SIGHUP forces a reload). Stitches that did not change are not
 touched; removed or changed ones stop accepting and let their open
-connections finish. An invalid change is logged and not applied.
+connections finish. An invalid change is logged and not applied; an invalid
+configuration at startup is logged, and ziti-stitch waits for it to be
+fixed.
 
 On shutdown, ziti-stitch stops accepting new connections, waits up to 30s
 for open ones to finish, then closes the rest. A second interrupt exits
@@ -54,18 +63,59 @@ immediately.`,
 			if err != nil {
 				return err
 			}
-			d, err := config.Load(dir)
-			if err != nil {
-				return err
+			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+				return fmt.Errorf("no config directory at %s; start with: ziti-stitch enroll --jwt <file>", dir)
 			}
-			log, setLevel := newLogger(d.Config.Log, cmd.ErrOrStderr())
 
+			// An invalid config does not stop us: under a service manager
+			// exiting would only mean a restart loop. Run nothing and wait
+			// for the fix, exactly as for a bad change while running.
+			d, loadErr := config.Load(dir)
+			if loadErr != nil {
+				d = &config.Dir{Path: dir, Config: config.Config{Log: config.Log{Level: "info", Format: "text"}}}
+			}
+
+			var w io.Writer = cmd.ErrOrStderr()
+			if logFile != "" {
+				lf, err := openLogFile(logFile)
+				if err != nil {
+					return err
+				}
+				defer lf.Close()
+				w = lf
+			}
+			log, setLevel := newLogger(d.Config.Log, w)
+			if loadErr != nil {
+				log.Error("configuration is not valid; running nothing until it is fixed", "error", loadErr)
+			}
+
+			// The Windows service control manager talks to services through
+			// its own API, not signals.
+			if runtime.GOOS == "windows" && !service.Interactive() {
+				s, err := service.New(&program{run: func(ctx context.Context) {
+					run(ctx, func() {}, d, log, setLevel)
+				}}, &service.Config{Name: serviceName})
+				if err != nil {
+					return err
+				}
+				return s.Run()
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			run(ctx, stop, d, log, setLevel)
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&logFile, "log-file", "", "log to this file, rotated at 10 MB with 5 kept, instead of stderr")
+	return cmd
+}
+
+// openLogFile returns a size-rotated log file at path.
+func openLogFile(path string) (*lumberjack.Logger, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return nil, err
+	}
+	return &lumberjack.Logger{Filename: path, MaxSize: 10, MaxBackups: 5}, nil
 }
 
 // run applies d and keeps applying changes to it until ctx is done, then

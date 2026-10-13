@@ -28,6 +28,8 @@ archives:
     files:
       - LICENSE
       - README.md
+      - docs/install.md
+      - docs/admin-checklist.md
 
 checksum:
   name_template: checksums.txt

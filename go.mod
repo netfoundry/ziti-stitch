@@ -4,12 +4,15 @@ go 1.27.1
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
+	github.com/kardianos/service v1.3.0
 	github.com/openziti/edge-api v0.36.1
 	github.com/openziti/identity v1.0.143
 	github.com/openziti/sdk-golang v1.9.1
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.5
+	golang.org/x/sys v0.48.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
@@ -90,7 +93,6 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect

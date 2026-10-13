@@ -4,7 +4,10 @@ Stitches services across independent [OpenZiti](https://openziti.io) networks.
 
 An identity on network A dials a service that `ziti-stitch` hosts. For each connection, `ziti-stitch` dials a matching service on network B with a second identity and splices the two together. It works with any number of networks and stitches, needs no admin access on any network, and runs as a system service on Linux, macOS and Windows.
 
-Status: early development. Enrolling, managing stitches and running work; running as a system service is next.
+Status: early development. Enrolling, managing stitches, running, and running as a service on Linux, macOS and Windows work.
+
+- [Installing and running as a service](docs/install.md)
+- [What to ask your network admins for](docs/admin-checklist.md)
 
 ## Quick start
 
@@ -29,7 +32,8 @@ While `run` is up, changes made with the CLI (or by hand) are applied on their o
 | `network list \| remove \| rename \| test` | |
 | `stitch add \| list \| remove \| enable \| disable` | `stitch add --help` for app data, precedence, timeouts |
 | `validate [--offline]` | |
-| `run` | SIGHUP forces a reload |
+| `run [--log-file]` | SIGHUP forces a reload |
+| `service install \| uninstall \| start \| stop \| restart \| status` | see [docs/install.md](docs/install.md) |
 
 ## Config directory
 

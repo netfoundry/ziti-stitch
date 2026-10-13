@@ -39,9 +39,13 @@ const dirPerm = 0o700
 const stitchesFilePerm = 0o644
 
 // EnsureDir creates the config directory at path and its networks
-// directory, if they do not exist.
+// directory, if they do not exist, and makes sure only the owner (on
+// Windows: SYSTEM and Administrators) can read them.
 func EnsureDir(path string) error {
-	return os.MkdirAll(filepath.Join(path, NetworksDirName), dirPerm)
+	if err := os.MkdirAll(filepath.Join(path, NetworksDirName), dirPerm); err != nil {
+		return err
+	}
+	return securePrivateDir(path)
 }
 
 // IdentityPath returns where the identity file for network name lives.
