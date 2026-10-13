@@ -216,7 +216,7 @@ func reloadConfig(cur *config.Dir, r *runner.Runner, log *slog.Logger, setLevel 
 		log.Warn("changes to where the web UI listens take effect after a restart")
 	}
 	if c := r.Apply(d); c != (runner.Changes{}) {
-		log.Info("configuration applied", "started", c.Started, "restarted", c.Restarted, "stopped", c.Stopped)
+		log.Info("configuration applied", "started", c.Started, "restarted", c.Restarted, "retuned", c.Retuned, "stopped", c.Stopped)
 	} else {
 		log.Debug("configuration reloaded; no stitch changed")
 	}

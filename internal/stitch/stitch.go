@@ -79,7 +79,8 @@ type Stitch struct {
 	probeAppData atomic.Pointer[[]byte]
 
 	track tracker
-	gate  atomic.Pointer[gate] // the current listener's, while there is one
+	gate  atomic.Pointer[gate]  // the current listener's, while there is one
+	terms atomic.Pointer[terms] // cost and precedence, changed live by Retune
 }
 
 // Status reports what the stitch is doing and its counters.
@@ -101,13 +102,33 @@ func (s *Stitch) Connections() []ConnStatus {
 
 // New returns a stitch from cfg between the given networks.
 func New(cfg config.Stitch, from, to Network, log *slog.Logger) *Stitch {
-	return &Stitch{
+	s := &Stitch{
 		cfg:  cfg,
 		from: from,
 		to:   to,
 		log: log.With("stitch", cfg.Name,
 			"from", from.Name()+":"+cfg.From.Service,
 			"to", to.Name()+":"+cfg.To.Service),
+	}
+	s.terms.Store(termsOf(cfg.From))
+	return s
+}
+
+func termsOf(in config.Ingress) *terms {
+	return &terms{precedence: edge.Precedence(ziti.GetPrecedenceForLabel(in.Precedence)), cost: in.Cost}
+}
+
+// Retune changes the precedence and cost of the stitch's terminators
+// without rebinding, so dials keep flowing while it happens. The stitch's
+// other settings are fixed for its lifetime.
+func (s *Stitch) Retune(in config.Ingress) {
+	t := termsOf(in)
+	s.terms.Store(t)
+	s.log.Info("changing terminator precedence and cost", "precedence", in.Precedence, "cost", in.Cost)
+	if g := s.gate.Load(); g != nil {
+		if err := g.retune(*t); err != nil {
+			s.log.Error("changing terminator precedence and cost failed; it applies from the next bind", "error", err)
+		}
 	}
 }
 
@@ -138,7 +159,8 @@ func (s *Stitch) Run(ctx context.Context) {
 				s.log.Debug("refreshing the ingress service failed", "error", err)
 			}
 		}
-		l, err := network.Listen(ctx, zA, s.cfg.From.Service, s.listenOptions(), bindTimeout)
+		bound := *s.terms.Load()
+		l, err := network.Listen(ctx, zA, s.cfg.From.Service, listenOptions(bound), bindTimeout)
 		if err != nil {
 			s.track.problem(fmt.Errorf("cannot bind %s: %w", s.cfg.From.Service, err))
 			wait := b.Next()
@@ -149,10 +171,10 @@ func (s *Stitch) Run(ctx context.Context) {
 			continue
 		}
 
-		s.log.Info("listening", "precedence", s.cfg.From.Precedence, "cost", s.cfg.From.Cost)
+		s.log.Info("listening", "precedence", ziti.Precedence(bound.precedence).String(), "cost", bound.cost)
 		s.track.setState(StateListening)
 		started := time.Now()
-		err = s.serve(ctx, l, zB)
+		err = s.serve(ctx, l, zB, bound)
 		_ = l.Close()
 		if ctx.Err() != nil {
 			s.log.Info("stopped listening")
@@ -177,18 +199,25 @@ func (s *Stitch) Wait() {
 	s.conns.Wait()
 }
 
-func (s *Stitch) listenOptions() *ziti.ListenOptions {
+func listenOptions(t terms) *ziti.ListenOptions {
 	opts := ziti.DefaultListenOptions()
 	// We answer each dial ourselves, after the egress dial: see handle.
 	opts.ManualStart = true
-	opts.Precedence = ziti.GetPrecedenceForLabel(s.cfg.From.Precedence)
-	opts.Cost = s.cfg.From.Cost
+	opts.Precedence = ziti.Precedence(t.precedence)
+	opts.Cost = t.cost
 	opts.ConnectTimeout = bindTimeout
 	return opts
 }
 
-// serve accepts connections until the listener fails or ctx is done.
-func (s *Stitch) serve(ctx context.Context, l edge.Listener, zB ziti.Context) error {
+// terminatorWatcher is implemented by the SDK's listener: it reports
+// terminators being added and removed.
+type terminatorWatcher interface {
+	SetConnectionChangeHandler(func([]edge.RouterHostConn))
+}
+
+// serve accepts connections until the listener fails or ctx is done. bound
+// is the precedence and cost l was created with.
+func (s *Stitch) serve(ctx context.Context, l edge.Listener, zB ziti.Context, bound terms) error {
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -199,13 +228,23 @@ func (s *Stitch) serve(ctx context.Context, l edge.Listener, zB ziti.Context) er
 		}
 	}()
 
-	g := newGate(l, edge.Precedence(ziti.GetPrecedenceForLabel(s.cfg.From.Precedence)),
-		func(ctx context.Context) bool { return s.egressReachable(ctx, zB) }, s.log)
+	g := newGate(l, bound, func(ctx context.Context) bool { return s.egressReachable(ctx, zB) }, s.log)
 	s.gate.Store(g)
 	defer func() {
 		s.gate.Store(nil)
 		g.stop()
 	}()
+	if w, ok := l.(terminatorWatcher); ok {
+		w.SetConnectionChangeHandler(func([]edge.RouterHostConn) { g.terminatorsChanged() })
+	} else {
+		s.log.Warn("the SDK's listener does not report new terminators; ones bound while gated or after a cost or precedence change get the original values until the next probe")
+	}
+	// A Retune that ran before the gate existed.
+	if cur := *s.terms.Load(); cur != bound {
+		if err := g.retune(cur); err != nil {
+			s.log.Error("changing terminator precedence and cost failed; it applies from the next bind", "error", err)
+		}
+	}
 
 	for {
 		in, err := l.AcceptEdge()

@@ -157,3 +157,62 @@ func TestTwoInstances(t *testing.T) {
 		}
 	})
 }
+
+// TestRetuneMovesDials changes an instance's precedence and cost while it
+// runs, and checks that dials follow without a rebind.
+func TestRetuneMovesDials(t *testing.T) {
+	dir := e2etest.Dir(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	run := func(name, file string) *network.Network {
+		return startNetwork(ctx, t, name, filepath.Join(dir, file), log)
+	}
+	a1, b1 := run("acme", "a/stitch-a.json"), run("partner", "b/stitch-b.json")
+	a2, b2 := run("acme", "a/stitch-a2.json"), run("partner", "b/stitch-b2.json")
+	zHost, err := run("host", "b/host-b.json").Context(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startEchoHost(t, zHost, haService)
+	zClient, err := run("client", "a/client-a.json").Context(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	i1 := startInstance(ctx, haStitch(config.PrecedenceDefault, haService), a1, b1, log)
+	defer i1.stop()
+	i2 := startInstance(ctx, haStitch(config.PrecedenceDefault, haService), a2, b2, log)
+	defer i2.stop()
+	waitListening(t, i1, i2)
+
+	// allTo waits until 5 dials in a row land on in, the change having
+	// reached the controller.
+	allTo := func(in *instance, what string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			before := in.Status().Accepted
+			for range 5 {
+				if got, err := roundTrip(zClient, haService, "", "ping"); err != nil || got != "ping" {
+					t.Fatalf("dial: %q, %v", got, err)
+				}
+			}
+			if in.Status().Accepted-before == 5 {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("dials did not all go to the instance %s", what)
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+
+	i2.Retune(config.Ingress{Network: "acme", Service: haService, Precedence: config.PrecedenceRequired})
+	allTo(i2, "made required")
+	i2.Retune(config.Ingress{Network: "acme", Service: haService, Precedence: config.PrecedenceDefault, Cost: 500})
+	allTo(i1, "left at cost 0 while the other went to cost 500")
+	if st := i2.Status(); st.State != StateListening {
+		t.Errorf("instance 2 is %s after retuning, want listening (no rebind)", st.State)
+	}
+}

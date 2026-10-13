@@ -47,6 +47,9 @@ type Stitch interface {
 	Wait()
 	Status() stitch.Status
 	Connections() []stitch.ConnStatus
+	// Retune changes the stitch's terminator precedence and cost in
+	// place.
+	Retune(config.Ingress)
 }
 
 // Runner owns the running networks and stitches.
@@ -68,7 +71,17 @@ type Runner struct {
 
 	drainingWG  sync.WaitGroup
 	netsRunning sync.WaitGroup
+	netStopWait time.Duration // see networkStopWait
 }
+
+// networkStopWait bounds how long Shutdown waits for networks to stop
+// after draining. A network in the middle of a certificate renewal
+// finishes the request the controller may be acting on, which can take
+// tens of seconds; the drain plus this has to stay inside the service
+// manager's stop timeout (TimeoutStopSec=45 under systemd), or it kills
+// the process anyway. Leaving mid-renewal is safe: the pending file
+// settles it on the next start.
+const networkStopWait = 10 * time.Second
 
 type netEntry struct {
 	name, path string
@@ -96,19 +109,20 @@ func New(log *slog.Logger) *Runner {
 
 func newRunner(log *slog.Logger, newNetwork func(name, path string) Network, newStitch func(cfg config.Stitch, from, to Network) Stitch) *Runner {
 	return &Runner{
-		log:        log,
-		newNetwork: newNetwork,
-		newStitch:  newStitch,
-		networks:   map[string]*netEntry{},
-		live:       map[*netEntry]bool{},
-		stitches:   map[string]*stitchEntry{},
-		draining:   map[*stitchEntry]bool{},
+		log:         log,
+		newNetwork:  newNetwork,
+		newStitch:   newStitch,
+		networks:    map[string]*netEntry{},
+		live:        map[*netEntry]bool{},
+		stitches:    map[string]*stitchEntry{},
+		draining:    map[*stitchEntry]bool{},
+		netStopWait: networkStopWait,
 	}
 }
 
 // Changes counts what an Apply did.
 type Changes struct {
-	Started, Restarted, Stopped int
+	Started, Restarted, Retuned, Stopped int
 }
 
 // Apply makes the running stitches match the enabled stitches in d, which
@@ -139,9 +153,15 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 		case !ok:
 			r.log.Info("stitch removed or disabled; stopping it", "stitch", name)
 			c.Stopped++
-		case want != e.cfg || e.from.path != paths[want.From.Network] || e.to.path != paths[want.To.Network]:
+		case e.from.path != paths[want.From.Network] || e.to.path != paths[want.To.Network] || !sameExceptTerms(want, e.cfg):
 			r.log.Info("stitch changed; restarting it", "stitch", name)
 			restarting[name] = true
+		case want != e.cfg:
+			// Only precedence or cost: no need to rebind and leave a gap.
+			e.st.Retune(want.From)
+			e.cfg = want
+			c.Retuned++
+			continue
 		default:
 			continue
 		}
@@ -182,6 +202,14 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 		}
 	}
 	return c
+}
+
+// sameExceptTerms reports whether a and b differ at most in the
+// terminator precedence and cost, which a running stitch can change in
+// place.
+func sameExceptTerms(a, b config.Stitch) bool {
+	a.From.Precedence, a.From.Cost = b.From.Precedence, b.From.Cost
+	return a == b
 }
 
 // Network returns the running network called name.
@@ -243,8 +271,9 @@ func (r *Runner) Snapshot() Snapshot {
 }
 
 // Shutdown stops every stitch, waits up to timeout for their connections
-// to finish, then stops every network (which ends whatever is left). It
-// reports whether everything finished in time.
+// to finish, then stops every network (which ends whatever is left) and
+// waits up to networkStopWait for them. It reports whether the
+// connections finished in time.
 func (r *Runner) Shutdown(timeout time.Duration) bool {
 	r.mu.Lock()
 	for _, e := range r.stitches {
@@ -274,7 +303,16 @@ func (r *Runner) Shutdown(timeout time.Duration) bool {
 		}
 		r.mu.Unlock()
 	}
-	r.netsRunning.Wait()
+	stopped := make(chan struct{})
+	go func() {
+		r.netsRunning.Wait()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(r.netStopWait):
+		r.log.Warn("networks did not stop in time, likely mid certificate renewal; it is settled on the next start", "waited", r.netStopWait)
+	}
 	return inTime
 }
 

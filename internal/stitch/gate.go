@@ -33,15 +33,22 @@ const (
 	probeMaxInterval = 30 * time.Second
 )
 
-// precedenceSetter is the part of edge.Listener the gate needs.
-type precedenceSetter interface {
-	UpdatePrecedence(edge.Precedence) error
+// tuner is the part of edge.Listener the gate needs.
+type tuner interface {
+	UpdateCostAndPrecedence(cost uint16, precedence edge.Precedence) error
+}
+
+// terms is how a listener's terminators compete for dials.
+type terms struct {
+	precedence edge.Precedence
+	cost       uint16
 }
 
 // gate drops a listener's terminators to precedence failed while the
 // egress service is unreachable, so the ingress controller sends dials to
 // instances that can complete them, and restores the configured precedence
-// once the egress service is back.
+// once the egress service is back. It also applies cost and precedence
+// changes to the live listener, so changing them needs no rebind.
 //
 // Without it, an instance configured as required keeps winning every dial
 // while it cannot reach the egress side, and the controller's retries never
@@ -53,25 +60,38 @@ type precedenceSetter interface {
 // reports true. Probe runs on a backoff while gated.
 //
 // The SDK binds terminators it adds later (a router reconnecting, a new
-// router) with the precedence the listener was created with, and
-// UpdatePrecedence only reaches the terminators that exist when it is
-// called. So every unsuccessful probe lowers the precedence again.
+// router) with the cost and precedence the listener was created with
+// (bound), and an update only reaches the terminators that exist when it
+// is sent. So whenever terminators come and go (terminatorsChanged), and
+// after every unsuccessful probe, the gate applies what it wants again if
+// that differs from bound.
 type gate struct {
-	l      precedenceSetter
-	normal edge.Precedence
-	probe  func(context.Context) bool
-	log    *slog.Logger
+	l     tuner
+	bound terms
+	probe func(context.Context) bool
+	log   *slog.Logger
 
 	// down is read without mu on every connection; mu serializes the
-	// transitions, which talk to the router and can take seconds.
+	// changes, which talk to the router and can take seconds.
 	down        atomic.Bool
 	mu          sync.Mutex
+	want        terms // the configured cost and precedence
 	stopped     bool
 	cancelProbe context.CancelFunc
 }
 
-func newGate(l precedenceSetter, normal edge.Precedence, probe func(context.Context) bool, log *slog.Logger) *gate {
-	return &gate{l: l, normal: normal, probe: probe, log: log}
+func newGate(l tuner, bound terms, probe func(context.Context) bool, log *slog.Logger) *gate {
+	return &gate{l: l, bound: bound, want: bound, probe: probe, log: log}
+}
+
+// apply sends the cost and the precedence the terminators should have
+// now. The caller holds mu.
+func (g *gate) apply() error {
+	p := g.want.precedence
+	if g.down.Load() {
+		p = edge.PrecedenceFailed
+	}
+	return g.l.UpdateCostAndPrecedence(g.want.cost, p)
 }
 
 // failed records a failed egress dial.
@@ -81,11 +101,11 @@ func (g *gate) failed() {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.down.Load() || g.stopped || g.normal == edge.PrecedenceFailed {
+	if g.down.Load() || g.stopped || g.want.precedence == edge.PrecedenceFailed {
 		return
 	}
 	g.down.Store(true)
-	if err := g.l.UpdatePrecedence(edge.PrecedenceFailed); err != nil {
+	if err := g.apply(); err != nil {
 		g.log.Error("egress service unreachable, and lowering precedence failed", "error", err)
 	} else {
 		g.log.Warn("egress service unreachable; lowered precedence to failed so other instances get the dials")
@@ -107,11 +127,40 @@ func (g *gate) ok() {
 	}
 	g.down.Store(false)
 	g.cancelProbe()
-	if err := g.l.UpdatePrecedence(g.normal); err != nil {
+	if err := g.apply(); err != nil {
 		g.log.Error("egress service is back, but restoring precedence failed", "error", err)
 		return
 	}
 	g.log.Info("egress service is back; restored precedence")
+}
+
+// retune applies a new configured cost and precedence. While gated, the
+// precedence stays failed and the new one is what ok restores.
+func (g *gate) retune(t terms) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.stopped {
+		return nil
+	}
+	g.want = t
+	if t.precedence == edge.PrecedenceFailed && g.down.Load() {
+		g.down.Store(false) // nothing left to gate
+		g.cancelProbe()
+	}
+	return g.apply()
+}
+
+// terminatorsChanged re-applies what the gate wants when the SDK may have
+// bound terminators with bound's cost and precedence instead.
+func (g *gate) terminatorsChanged() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.stopped || (!g.down.Load() && g.want == g.bound) {
+		return
+	}
+	if err := g.apply(); err != nil {
+		g.log.Debug("re-applying cost and precedence failed", "error", err)
+	}
 }
 
 // isDown reports whether the gate has lowered the listener's precedence.
@@ -119,21 +168,8 @@ func (g *gate) isDown() bool {
 	return g.down.Load()
 }
 
-// lowerAgain re-applies precedence failed while the gate is down, for
-// terminators the SDK bound since it was lowered.
-func (g *gate) lowerAgain() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if !g.down.Load() || g.stopped {
-		return
-	}
-	if err := g.l.UpdatePrecedence(edge.PrecedenceFailed); err != nil {
-		g.log.Debug("lowering precedence again failed", "error", err)
-	}
-}
-
-// stop ends probing. The listener is going away, so its precedence no
-// longer matters.
+// stop ends probing. The listener is going away, so its terminators no
+// longer matter.
 func (g *gate) stop() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -150,6 +186,6 @@ func (g *gate) probeUntilBack(ctx context.Context) {
 			g.ok()
 			return
 		}
-		g.lowerAgain()
+		g.terminatorsChanged()
 	}
 }

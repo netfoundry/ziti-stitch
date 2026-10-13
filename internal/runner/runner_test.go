@@ -102,17 +102,25 @@ type fakeStitch struct {
 }
 
 func (f *fakeStitch) Run(ctx context.Context) {
-	f.rec.add("stitch start %s cost=%d", f.cfg.Name, f.cfg.From.Cost)
+	f.rec.add("stitch start %s v=%d", f.cfg.Name, version(f.cfg))
 	<-ctx.Done()
-	f.rec.add("stitch stop %s cost=%d", f.cfg.Name, f.cfg.From.Cost)
+	f.rec.add("stitch stop %s v=%d", f.cfg.Name, version(f.cfg))
 }
+
+func (f *fakeStitch) Retune(in config.Ingress) {
+	f.rec.add("stitch retune %s v=%d cost=%d precedence=%s", f.cfg.Name, version(f.cfg), in.Cost, in.Precedence)
+}
+
+// version tells instances of a stitch apart in the tests: a setting that
+// changing restarts the stitch.
+func version(s config.Stitch) int { return int(s.IdleTimeout / time.Minute) }
 
 func (f *fakeStitch) Wait() { <-f.drained }
 
 func (f *fakeStitch) Status() stitch.Status { return stitch.Status{Name: f.cfg.Name} }
 
 func (f *fakeStitch) Connections() []stitch.ConnStatus {
-	return []stitch.ConnStatus{{Stitch: f.cfg.Name, ACircuit: fmt.Sprintf("%s-cost%d", f.cfg.Name, f.cfg.From.Cost)}}
+	return []stitch.ConnStatus{{Stitch: f.cfg.Name, ACircuit: fmt.Sprintf("%s-v%d", f.cfg.Name, version(f.cfg))}}
 }
 
 type harness struct {
@@ -120,7 +128,7 @@ type harness struct {
 	rec *recorder
 
 	mu       sync.Mutex
-	stitches map[string][]*fakeStitch // instances by "name cost", oldest first
+	stitches map[string][]*fakeStitch // instances by "name v", oldest first
 }
 
 func newHarness() *harness {
@@ -130,7 +138,7 @@ func newHarness() *harness {
 		func(cfg config.Stitch, _, _ Network) Stitch {
 			f := &fakeStitch{cfg: cfg, rec: h.rec, drained: make(chan struct{})}
 			h.mu.Lock()
-			key := fmt.Sprintf("%s cost=%d", cfg.Name, cfg.From.Cost)
+			key := fmt.Sprintf("%s v=%d", cfg.Name, version(cfg))
 			h.stitches[key] = append(h.stitches[key], f)
 			h.mu.Unlock()
 			return f
@@ -139,11 +147,11 @@ func newHarness() *harness {
 }
 
 // drain lets the connections of the oldest instance with that name and
-// cost finish.
-func (h *harness) drain(name string, cost uint16) {
+// version finish.
+func (h *harness) drain(name string, v int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	key := fmt.Sprintf("%s cost=%d", name, cost)
+	key := fmt.Sprintf("%s v=%d", name, v)
 	close(h.stitches[key][0].drained)
 	h.stitches[key] = h.stitches[key][1:]
 }
@@ -156,11 +164,13 @@ func dir(networks map[string]string, stitches ...config.Stitch) *config.Dir {
 	return d
 }
 
-func st(name, from, to string, cost uint16) config.Stitch {
+// st is a stitch at version v (see version).
+func st(name, from, to string, v int) config.Stitch {
 	return config.Stitch{
-		Name: name,
-		From: config.Ingress{Network: from, Service: "svc", Cost: cost},
-		To:   config.Egress{Network: to, Service: "svc"},
+		Name:        name,
+		From:        config.Ingress{Network: from, Service: "svc"},
+		To:          config.Egress{Network: to, Service: "svc"},
+		IdleTimeout: time.Duration(v) * time.Minute,
 	}
 }
 
@@ -174,11 +184,11 @@ func TestApplyStartsOnlyWhatIsEnabled(t *testing.T) {
 	if c != (Changes{Started: 1}) {
 		t.Errorf("changes = %+v", c)
 	}
-	h.rec.waitFor(t, "stitch start s1 cost=0")
+	h.rec.waitFor(t, "stitch start s1 v=0")
 	h.rec.waitFor(t, "net start a@a.json")
 	h.rec.waitFor(t, "net start b@b.json")
 	h.rec.settle()
-	if h.rec.has("net start c@c.json") || h.rec.has("stitch start off cost=0") {
+	if h.rec.has("net start c@c.json") || h.rec.has("stitch start off v=0") {
 		t.Errorf("started something unused or disabled: %v", h.rec.events)
 	}
 }
@@ -187,12 +197,12 @@ func TestApplySameConfigChangesNothing(t *testing.T) {
 	h := newHarness()
 	d := dir(abNets, st("s1", "a", "b", 0))
 	h.r.Apply(d)
-	h.rec.waitFor(t, "stitch start s1 cost=0")
+	h.rec.waitFor(t, "stitch start s1 v=0")
 	if c := h.r.Apply(d); c != (Changes{}) {
 		t.Errorf("changes = %+v", c)
 	}
 	h.rec.settle()
-	if n := h.rec.count("stitch start s1 cost=0"); n != 1 || h.rec.has("stitch stop s1 cost=0") {
+	if n := h.rec.count("stitch start s1 v=0"); n != 1 || h.rec.has("stitch stop s1 v=0") {
 		t.Errorf("re-applying the same config touched the stitch: %v", h.rec.events)
 	}
 }
@@ -200,14 +210,14 @@ func TestApplySameConfigChangesNothing(t *testing.T) {
 func TestApplyRestartsChangedStitchWithoutRestartingNetworks(t *testing.T) {
 	h := newHarness()
 	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
-	h.rec.waitFor(t, "stitch start s1 cost=0")
+	h.rec.waitFor(t, "stitch start s1 v=0")
 
 	c := h.r.Apply(dir(abNets, st("s1", "a", "b", 7)))
 	if c != (Changes{Restarted: 1}) {
 		t.Errorf("changes = %+v", c)
 	}
-	h.rec.waitFor(t, "stitch stop s1 cost=0")
-	h.rec.waitFor(t, "stitch start s1 cost=7")
+	h.rec.waitFor(t, "stitch stop s1 v=0")
+	h.rec.waitFor(t, "stitch start s1 v=7")
 	h.drain("s1", 0)
 	h.rec.settle()
 	if h.rec.has("net stop a@a.json") || h.rec.count("net start a@a.json") != 1 {
@@ -218,13 +228,13 @@ func TestApplyRestartsChangedStitchWithoutRestartingNetworks(t *testing.T) {
 func TestRemovedNetworkStopsOnlyAfterItsConnectionsDrain(t *testing.T) {
 	h := newHarness()
 	h.r.Apply(dir(map[string]string{"a": "a.json", "b": "b.json", "c": "c.json"}, st("s1", "a", "b", 0), st("s2", "a", "c", 0)))
-	h.rec.waitFor(t, "stitch start s2 cost=0")
+	h.rec.waitFor(t, "stitch start s2 v=0")
 
 	c := h.r.Apply(dir(map[string]string{"a": "a.json", "b": "b.json"}, st("s1", "a", "b", 0)))
 	if c != (Changes{Stopped: 1}) {
 		t.Errorf("changes = %+v", c)
 	}
-	h.rec.waitFor(t, "stitch stop s2 cost=0")
+	h.rec.waitFor(t, "stitch stop s2 v=0")
 	h.rec.settle()
 	if h.rec.has("net stop c@c.json") {
 		t.Fatal("network c stopped while s2 still had connections")
@@ -240,14 +250,14 @@ func TestRemovedNetworkStopsOnlyAfterItsConnectionsDrain(t *testing.T) {
 func TestMovedIdentityReplacesNetworkAndRestartsItsStitches(t *testing.T) {
 	h := newHarness()
 	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
-	h.rec.waitFor(t, "stitch start s1 cost=0")
+	h.rec.waitFor(t, "stitch start s1 v=0")
 
 	c := h.r.Apply(dir(map[string]string{"a": "a2.json", "b": "b.json"}, st("s1", "a", "b", 0)))
 	if c != (Changes{Restarted: 1}) {
 		t.Errorf("changes = %+v", c)
 	}
 	h.rec.waitFor(t, "net start a@a2.json")
-	h.rec.waitFor(t, "stitch stop s1 cost=0")
+	h.rec.waitFor(t, "stitch stop s1 v=0")
 	h.rec.settle()
 	if h.rec.has("net stop a@a.json") {
 		t.Fatal("old network stopped while the old stitch was still draining")
@@ -263,11 +273,11 @@ func TestMovedIdentityReplacesNetworkAndRestartsItsStitches(t *testing.T) {
 func TestShutdownDrainsThenStopsNetworks(t *testing.T) {
 	h := newHarness()
 	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
-	h.rec.waitFor(t, "stitch start s1 cost=0")
+	h.rec.waitFor(t, "stitch start s1 v=0")
 
 	done := make(chan bool)
 	go func() { done <- h.r.Shutdown(time.Minute) }()
-	h.rec.waitFor(t, "stitch stop s1 cost=0")
+	h.rec.waitFor(t, "stitch stop s1 v=0")
 	h.rec.settle()
 	if h.rec.has("net stop a@a.json") {
 		t.Fatal("network stopped before the stitch drained")
@@ -284,7 +294,7 @@ func TestShutdownDrainsThenStopsNetworks(t *testing.T) {
 func TestShutdownTimeoutStopsNetworksAnyway(t *testing.T) {
 	h := newHarness()
 	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
-	h.rec.waitFor(t, "stitch start s1 cost=0")
+	h.rec.waitFor(t, "stitch start s1 v=0")
 	// Connections that never finish on their own; closing the networks is
 	// what ends them for real, which the fake does not model.
 	defer h.drain("s1", 0)
@@ -297,12 +307,45 @@ func TestShutdownTimeoutStopsNetworksAnyway(t *testing.T) {
 	}
 }
 
+// stuckNetwork does not stop when asked, like one in the middle of a
+// certificate renewal, until released.
+type stuckNetwork struct {
+	fakeNetwork
+	release chan struct{}
+}
+
+func (f *stuckNetwork) Run(context.Context) { <-f.release }
+
+func TestShutdownDoesNotWaitForeverForNetworks(t *testing.T) {
+	h := newHarness()
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	h.r.newNetwork = func(name, path string) Network {
+		return &stuckNetwork{fakeNetwork{name: name, path: path, rec: h.rec}, release}
+	}
+	h.r.netStopWait = 50 * time.Millisecond
+	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
+	h.rec.waitFor(t, "stitch start s1 v=0")
+	h.drain("s1", 0)
+
+	done := make(chan bool)
+	go func() { done <- h.r.Shutdown(time.Second) }()
+	select {
+	case inTime := <-done:
+		if !inTime {
+			t.Error("the connections drained, but Shutdown reported they did not")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown waited for networks that never stop")
+	}
+}
+
 func TestSnapshotIncludesDrainingConnections(t *testing.T) {
 	h := newHarness()
 	h.r.Apply(dir(abNets, st("s1", "a", "b", 0), st("s2", "a", "b", 0)))
-	h.rec.waitFor(t, "stitch start s2 cost=0")
+	h.rec.waitFor(t, "stitch start s2 v=0")
 	h.r.Apply(dir(abNets, st("s1", "a", "b", 0), st("s2", "a", "b", 5)))
-	h.rec.waitFor(t, "stitch start s2 cost=5")
+	h.rec.waitFor(t, "stitch start s2 v=5")
 
 	snap := h.r.Snapshot()
 	var names []string
@@ -323,7 +366,7 @@ func TestSnapshotIncludesDrainingConnections(t *testing.T) {
 		circuits = append(circuits, c.ACircuit)
 	}
 	slices.Sort(circuits)
-	if !slices.Equal(circuits, []string{"s1-cost0", "s2-cost0", "s2-cost5"}) {
+	if !slices.Equal(circuits, []string{"s1-v0", "s2-v0", "s2-v5"}) {
 		t.Errorf("connections = %v", circuits)
 	}
 
@@ -364,5 +407,38 @@ func TestWebNetworkRunsWithoutStitches(t *testing.T) {
 	}
 	if _, ok := h.r.Network("w"); ok {
 		t.Error("Network(w) after it stopped")
+	}
+}
+
+func TestApplyRetunesPrecedenceAndCostInPlace(t *testing.T) {
+	h := newHarness()
+	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
+	h.rec.waitFor(t, "stitch start s1 v=0")
+
+	changed := st("s1", "a", "b", 0)
+	changed.From.Cost, changed.From.Precedence = 7, config.PrecedenceRequired
+	if c := h.r.Apply(dir(abNets, changed)); c != (Changes{Retuned: 1}) {
+		t.Errorf("changes = %+v", c)
+	}
+	h.rec.waitFor(t, "stitch retune s1 v=0 cost=7 precedence=required")
+	if c := h.r.Apply(dir(abNets, changed)); c != (Changes{}) {
+		t.Errorf("re-applying after a retune: changes = %+v", c)
+	}
+	h.rec.settle()
+	if h.rec.has("stitch stop s1 v=0") {
+		t.Errorf("a precedence and cost change restarted the stitch: %v", h.rec.events)
+	}
+}
+
+func TestSameExceptTerms(t *testing.T) {
+	a := st("s1", "a", "b", 0)
+	b := a
+	b.From.Cost, b.From.Precedence = 3, config.PrecedenceFailed
+	if !sameExceptTerms(a, b) {
+		t.Error("cost and precedence alone should not count as a change")
+	}
+	b.From.Service = "other"
+	if sameExceptTerms(a, b) {
+		t.Error("a different ingress service should count as a change")
 	}
 }

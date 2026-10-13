@@ -82,7 +82,7 @@ func TestRefusedDialsAreClosed(t *testing.T) {
 	t.Run("egress unreachable", func(t *testing.T) {
 		s := testStitch(config.AppDataPassthrough)
 		in := &ingressConn{}
-		g := newGate(&fakeListener{}, edge.PrecedenceDefault, neverBack, discard)
+		g := newGate(&fakeListener{}, boundAt(edge.PrecedenceDefault), neverBack, discard)
 		defer g.stop()
 		s.handle(in, &egress{err: errors.New("no terminators")}, g)
 		if in.refusedBy != errUpstreamUnavailable || !in.closed.Load() {
@@ -104,7 +104,7 @@ func TestRefusedDialsAreClosed(t *testing.T) {
 // stitch gated. Before any success it uses the first failure's.
 func TestProbeAppData(t *testing.T) {
 	s := testStitch(config.AppDataPassthrough)
-	g := newGate(&fakeListener{}, edge.PrecedenceDefault, neverBack, discard)
+	g := newGate(&fakeListener{}, boundAt(edge.PrecedenceDefault), neverBack, discard)
 	defer g.stop()
 	probe := func() string {
 		if p := s.probeAppData.Load(); p != nil {
