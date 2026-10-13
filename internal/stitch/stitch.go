@@ -30,7 +30,6 @@ import (
 	"github.com/openziti/sdk-golang/ziti/edge"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
-	"github.com/netfoundry/ziti-stitch/internal/network"
 	"github.com/netfoundry/ziti-stitch/internal/retry"
 )
 
@@ -54,10 +53,18 @@ const (
 	stableListener = time.Minute
 )
 
+// Network is where a stitch gets its Ziti contexts. *network.Network is
+// the real one.
+type Network interface {
+	Name() string
+	// Context waits until the network is ready or ctx is done.
+	Context(ctx context.Context) (ziti.Context, error)
+}
+
 // Stitch is one configured stitch at run time.
 type Stitch struct {
 	cfg      config.Stitch
-	from, to *network.Network
+	from, to Network
 	log      *slog.Logger
 
 	conns sync.WaitGroup // connections in flight, for draining
@@ -69,7 +76,7 @@ type Stitch struct {
 }
 
 // New returns a stitch from cfg between the given networks.
-func New(cfg config.Stitch, from, to *network.Network, log *slog.Logger) *Stitch {
+func New(cfg config.Stitch, from, to Network, log *slog.Logger) *Stitch {
 	return &Stitch{
 		cfg:  cfg,
 		from: from,

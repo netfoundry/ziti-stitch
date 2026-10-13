@@ -201,8 +201,8 @@ func TestSaveControllerURLs(t *testing.T) {
 	if !strings.Contains(string(raw), "https://b:1280/edge/client/v1") {
 		t.Fatalf("list not saved:\n%s", raw)
 	}
-	if fi, _ := os.Stat(n.path); fi.Mode().Perm() != identityFilePerm {
-		t.Errorf("perm = %o, want %o", fi.Mode().Perm(), identityFilePerm)
+	if fi, _ := os.Stat(n.path); fi.Mode().Perm() != IdentityFilePerm {
+		t.Errorf("perm = %o, want %o", fi.Mode().Perm(), IdentityFilePerm)
 	}
 }
 

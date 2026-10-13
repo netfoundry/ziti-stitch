@@ -101,7 +101,7 @@ func TestRenewInPlaceKeepsServing(t *testing.T) {
 	}
 	l := listen()
 
-	zDial, err := authenticate(filepath.Join(dir, "b", "stitch-b.json"))
+	zDial, err := Connect(filepath.Join(dir, "b", "stitch-b.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

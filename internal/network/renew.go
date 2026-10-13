@@ -165,7 +165,7 @@ func (n *Network) renew(ctx context.Context, clt *ziti.CtrlClient, authenticator
 	if err != nil {
 		return err
 	}
-	if err := atomicfile.WriteFile(n.pendingPath(), updated, identityFilePerm); err != nil {
+	if err := atomicfile.WriteFile(n.pendingPath(), updated, IdentityFilePerm); err != nil {
 		return fmt.Errorf("saving new certificate: %w", err)
 	}
 
@@ -247,7 +247,7 @@ func (n *Network) pendingPath() string {
 
 // probe reports whether the identity file at path authenticates.
 func probe(path string) error {
-	zctx, err := authenticate(path)
+	zctx, err := Connect(path)
 	if err != nil {
 		return err
 	}

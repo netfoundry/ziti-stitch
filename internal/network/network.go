@@ -40,8 +40,8 @@ import (
 // controller has confirmed the new certificate. See Network.renew.
 const PendingSuffix = ".pending"
 
-// identityFilePerm keeps private keys readable by the owner only.
-const identityFilePerm = 0o600
+// IdentityFilePerm keeps private keys readable by the owner only.
+const IdentityFilePerm = 0o600
 
 // serviceRefreshInterval is how often the SDK checks whether our service
 // list changed (a cheap call when it has not). The SDK default is five
@@ -144,7 +144,7 @@ func (n *Network) connect(ctx context.Context) (ziti.Context, bool) {
 
 		var errs []error
 		for _, file := range candidates {
-			zctx, err := authenticate(file)
+			zctx, err := Connect(file)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", file, err))
 				continue
@@ -185,7 +185,9 @@ func (n *Network) settlePending(worked, pending string) error {
 	return nil
 }
 
-func authenticate(file string) (ziti.Context, error) {
+// Connect builds a Ziti context from the identity file and authenticates
+// it once. The caller closes it.
+func Connect(file string) (ziti.Context, error) {
 	cfg, err := ziti.NewConfigFromFile(file)
 	if err != nil {
 		return nil, err
@@ -230,7 +232,7 @@ func (n *Network) saveControllerURLs(seq uint64, urls []*url.URL) {
 	if !changed {
 		return
 	}
-	if err := atomicfile.WriteFile(n.path, out, identityFilePerm); err != nil {
+	if err := atomicfile.WriteFile(n.path, out, IdentityFilePerm); err != nil {
 		n.log.Error("cannot save controller list", "error", err)
 		return
 	}

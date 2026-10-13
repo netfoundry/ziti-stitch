@@ -26,25 +26,30 @@ import (
 )
 
 // newLogger returns our logger for cfg, writing to w, and sets up the
-// Ziti SDK's logrus output to match. The SDK is chatty at info (every
-// router connection), so it logs warnings and up unless we are at debug.
-// config.Load has already validated cfg.
-func newLogger(cfg config.Log, w io.Writer) *slog.Logger {
-	var level slog.Level
-	_ = level.UnmarshalText([]byte(cfg.Level))
-	opts := &slog.HandlerOptions{Level: level}
+// Ziti SDK's logrus output to match. setLevel changes the level of both
+// later. The SDK is chatty at info (every router connection), so it logs
+// warnings and up unless we are at debug. config.Load has already
+// validated cfg.
+func newLogger(cfg config.Log, w io.Writer) (log *slog.Logger, setLevel func(level string)) {
+	lv := new(slog.LevelVar)
+	setLevel = func(name string) {
+		var level slog.Level
+		_ = level.UnmarshalText([]byte(name))
+		lv.Set(level)
+		if level <= slog.LevelDebug {
+			logrus.SetLevel(logrus.InfoLevel)
+		} else {
+			logrus.SetLevel(logrus.WarnLevel)
+		}
+	}
+	setLevel(cfg.Level)
+	opts := &slog.HandlerOptions{Level: lv}
 
 	logrus.SetOutput(w)
-	if level <= slog.LevelDebug {
-		logrus.SetLevel(logrus.InfoLevel)
-	} else {
-		logrus.SetLevel(logrus.WarnLevel)
-	}
-
 	if cfg.Format == "json" {
 		logrus.SetFormatter(newSDKFormatter(&logrus.JSONFormatter{}))
-		return slog.New(slog.NewJSONHandler(w, opts))
+		return slog.New(slog.NewJSONHandler(w, opts)), setLevel
 	}
 	logrus.SetFormatter(newSDKFormatter(&logrus.TextFormatter{FullTimestamp: true}))
-	return slog.New(slog.NewTextHandler(w, opts))
+	return slog.New(slog.NewTextHandler(w, opts)), setLevel
 }

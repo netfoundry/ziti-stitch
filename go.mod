@@ -3,6 +3,7 @@ module github.com/netfoundry/ziti-stitch
 go 1.27.1
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/openziti/edge-api v0.36.1
 	github.com/openziti/identity v1.0.143
 	github.com/openziti/sdk-golang v1.9.1
@@ -12,11 +13,11 @@ require (
 )
 
 require (
+	github.com/Jeffail/gabs v1.4.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fullsailor/pkcs7 v0.0.0-20190404230743-d7302db945fa // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect

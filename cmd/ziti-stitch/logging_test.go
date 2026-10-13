@@ -29,7 +29,7 @@ import (
 
 func TestNewLoggerJSONAtInfo(t *testing.T) {
 	var buf bytes.Buffer
-	log := newLogger(config.Log{Level: "info", Format: "json"}, &buf)
+	log, _ := newLogger(config.Log{Level: "info", Format: "json"}, &buf)
 	log.Debug("hidden")
 	log.Info("shown", "k", "v")
 
@@ -51,9 +51,23 @@ func TestNewLoggerJSONAtInfo(t *testing.T) {
 
 func TestNewLoggerTextAtDebug(t *testing.T) {
 	var buf bytes.Buffer
-	log := newLogger(config.Log{Level: "debug", Format: "text"}, &buf)
+	log, _ := newLogger(config.Log{Level: "debug", Format: "text"}, &buf)
 	log.Debug("shown")
 	if !strings.Contains(buf.String(), "msg=shown") {
+		t.Errorf("output = %q", buf.String())
+	}
+	if logrus.GetLevel() != logrus.InfoLevel {
+		t.Errorf("SDK log level = %v, want info", logrus.GetLevel())
+	}
+}
+
+func TestSetLevelChangesBothLoggers(t *testing.T) {
+	var buf bytes.Buffer
+	log, setLevel := newLogger(config.Log{Level: "warn", Format: "text"}, &buf)
+	log.Info("hidden")
+	setLevel("debug")
+	log.Debug("now shown")
+	if strings.Contains(buf.String(), "hidden") || !strings.Contains(buf.String(), "now shown") {
 		t.Errorf("output = %q", buf.String())
 	}
 	if logrus.GetLevel() != logrus.InfoLevel {

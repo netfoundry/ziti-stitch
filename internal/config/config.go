@@ -132,6 +132,21 @@ func ValidName(s string) bool {
 // Load reads the config directory at path, fills in defaults and validates
 // the result. Validation problems are reported together.
 func Load(path string) (*Dir, error) {
+	d, err := Read(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.Validate(); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// Read reads the config directory at path and fills in defaults, without
+// validating the stitches. Commands that change the config use it, so that
+// a config that is already broken can still be fixed; they validate the
+// result before saving it.
+func Read(path string) (*Dir, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -152,11 +167,7 @@ func Load(path string) (*Dir, error) {
 	if d.Networks, err = listNetworks(filepath.Join(path, NetworksDirName)); err != nil {
 		return nil, err
 	}
-
 	d.applyDefaults()
-	if err := d.validate(); err != nil {
-		return nil, err
-	}
 	return d, nil
 }
 
@@ -237,7 +248,8 @@ func (d *Dir) applyDefaults() {
 	}
 }
 
-func (d *Dir) validate() error {
+// Validate checks the whole configuration and reports every problem.
+func (d *Dir) Validate() error {
 	var errs []error
 	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 

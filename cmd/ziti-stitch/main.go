@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
@@ -44,11 +45,26 @@ func newRootCmd() *cobra.Command {
 		// still prints usage for bad flags and unknown commands.
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// The SDK logs at info for routine things (key generation, router
+		// connections); in a CLI command that is noise between the output
+		// lines. run replaces this with its own logging setup.
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+			logrus.SetOutput(cmd.ErrOrStderr())
+			logrus.SetLevel(logrus.WarnLevel)
+			logrus.SetFormatter(newSDKFormatter(&logrus.TextFormatter{DisableTimestamp: true}))
+		},
 	}
 	var configDir string
 	root.PersistentFlags().StringVar(&configDir, "config-dir", "",
 		"config directory (default $"+config.EnvConfigDir+", else a per-OS location)")
-	root.AddCommand(newVersionCmd(), newRunCmd(&configDir))
+	root.AddCommand(
+		newRunCmd(&configDir),
+		newEnrollCmd(&configDir),
+		newNetworkCmd(&configDir),
+		newStitchCmd(&configDir),
+		newValidateCmd(&configDir),
+		newVersionCmd(),
+	)
 	return root
 }
 
