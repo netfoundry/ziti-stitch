@@ -25,10 +25,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +69,13 @@ const (
 // Config is the content of config.yaml.
 type Config struct {
 	Log Log `yaml:"log"`
+	Web Web `yaml:"web"`
+}
+
+// Web configures the web UI.
+type Web struct {
+	// Listen is a loopback host:port to serve the UI on; empty turns it off.
+	Listen string `yaml:"listen,omitempty"`
 }
 
 // Log configures ziti-stitch's own logging.
@@ -234,18 +243,23 @@ func (d *Dir) applyDefaults() {
 	if d.Config.Log.Format == "" {
 		d.Config.Log.Format = "text"
 	}
-	for i := range d.Stitches {
-		s := &d.Stitches[i]
-		if s.AppData == "" {
-			s.AppData = AppDataPassthrough
-		}
-		if s.From.Precedence == "" {
-			s.From.Precedence = PrecedenceDefault
-		}
-		if s.To.ConnectTimeout == 0 {
-			s.To.ConnectTimeout = DefaultConnectTimeout
-		}
+	for i, s := range d.Stitches {
+		d.Stitches[i] = s.WithDefaults()
 	}
+}
+
+// WithDefaults returns s with defaults in place of unset values.
+func (s Stitch) WithDefaults() Stitch {
+	if s.AppData == "" {
+		s.AppData = AppDataPassthrough
+	}
+	if s.From.Precedence == "" {
+		s.From.Precedence = PrecedenceDefault
+	}
+	if s.To.ConnectTimeout == 0 {
+		s.To.ConnectTimeout = DefaultConnectTimeout
+	}
+	return s
 }
 
 // Validate checks the whole configuration and reports every problem.
@@ -262,6 +276,11 @@ func (d *Dir) Validate() error {
 	case "text", "json":
 	default:
 		add("%s: log.format %q is not one of text, json", ConfigFileName, d.Config.Log.Format)
+	}
+	if l := d.Config.Web.Listen; l != "" {
+		if err := checkLoopback(l); err != nil {
+			add("%s: web.listen: %v", ConfigFileName, err)
+		}
 	}
 
 	names := map[string]bool{}
@@ -371,6 +390,23 @@ func (d *Dir) findCycles() []error {
 		}
 	}
 	return errs
+}
+
+// checkLoopback accepts host:port where the host is a loopback address.
+// The UI is plain HTTP; serving it beyond this machine is for the Ziti
+// listener, which is encrypted and authenticated end to end.
+func checkLoopback(hostport string) error {
+	host, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return err
+	}
+	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+		return fmt.Errorf("%q is not a valid port", port)
+	}
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("%q is not a loopback address (127.0.0.1, ::1 or localhost); the UI is only served locally", host)
+	}
+	return nil
 }
 
 func endpointKey(network, service string) string {

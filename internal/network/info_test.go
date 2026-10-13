@@ -101,3 +101,19 @@ func TestParseInfoRejects(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribeExpiry(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	tests := map[time.Time]string{
+		{}:                     "unknown",
+		now.Add(-time.Hour):    "2026-10-12 (EXPIRED)",
+		now.Add(3 * time.Hour): "2026-10-12 (today)",
+		now.AddDate(0, 0, 30):  "2026-11-11 (in 30 days)",
+		now.AddDate(1, 0, 0):   "2027-10-12 (in 365 days)",
+	}
+	for notAfter, want := range tests {
+		if got := DescribeExpiry(notAfter, now); got != want {
+			t.Errorf("DescribeExpiry(%v) = %q, want %q", notAfter, got, want)
+		}
+	}
+}

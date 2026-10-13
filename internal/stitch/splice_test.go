@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -61,8 +62,9 @@ type spliceResult struct {
 func startSplice(a, b halfConn, idle time.Duration) <-chan spliceResult {
 	done := make(chan spliceResult, 1)
 	go func() {
-		aToB, bToA, err := splice(a, b, idle)
-		done <- spliceResult{aToB, bToA, err}
+		var aToB, bToA atomic.Int64
+		err := splice(a, b, idle, &aToB, &bToA)
+		done <- spliceResult{aToB.Load(), bToA.Load(), err}
 	}()
 	return done
 }

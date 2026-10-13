@@ -21,6 +21,7 @@ package stitch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -73,6 +74,26 @@ type Stitch struct {
 	// The gate's probe dials with it, because a tunneler host on the
 	// egress side may reject a dial that carries none.
 	lastAppData atomic.Pointer[[]byte]
+
+	track tracker
+	gate  atomic.Pointer[gate] // the current listener's, while there is one
+}
+
+// Status reports what the stitch is doing and its counters.
+func (s *Stitch) Status() Status {
+	st := s.track.status()
+	st.Name = s.cfg.Name
+	st.From = s.from.Name() + ":" + s.cfg.From.Service
+	st.To = s.to.Name() + ":" + s.cfg.To.Service
+	if g := s.gate.Load(); st.State == StateListening && g != nil && g.isDown() {
+		st.State = StateGated
+	}
+	return st
+}
+
+// Connections returns the stitch's open connections, oldest first.
+func (s *Stitch) Connections() []ConnStatus {
+	return s.track.connections()
 }
 
 // New returns a stitch from cfg between the given networks.
@@ -92,6 +113,8 @@ func New(cfg config.Stitch, from, to Network, log *slog.Logger) *Stitch {
 // (lost permission, removed service, unreachable routers). It returns once
 // the listener is closed; connections still in flight carry on, see Wait.
 func (s *Stitch) Run(ctx context.Context) {
+	defer s.track.setState(StateStopped)
+	s.track.setState(StateWaiting)
 	zA, err := s.from.Context(ctx)
 	if err != nil {
 		return
@@ -100,6 +123,7 @@ func (s *Stitch) Run(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	s.track.setState(StateBinding)
 
 	b := retry.Backoff{Min: time.Second, Max: 30 * time.Second}
 	for attempt := 0; ; attempt++ {
@@ -113,6 +137,7 @@ func (s *Stitch) Run(ctx context.Context) {
 		}
 		l, err := zA.ListenWithOptions(s.cfg.From.Service, s.listenOptions())
 		if err != nil {
+			s.track.problem(fmt.Errorf("cannot bind %s: %w", s.cfg.From.Service, err))
 			wait := b.Next()
 			s.log.Warn("cannot bind the ingress service; retrying", "error", err, "retry_in", wait)
 			if !retry.Sleep(ctx, wait) {
@@ -122,6 +147,7 @@ func (s *Stitch) Run(ctx context.Context) {
 		}
 
 		s.log.Info("listening", "precedence", s.cfg.From.Precedence, "cost", s.cfg.From.Cost)
+		s.track.setState(StateListening)
 		started := time.Now()
 		err = s.serve(ctx, l, zB)
 		_ = l.Close()
@@ -132,6 +158,8 @@ func (s *Stitch) Run(ctx context.Context) {
 		if time.Since(started) >= stableListener {
 			b.Reset()
 		}
+		s.track.setState(StateBinding)
+		s.track.problem(fmt.Errorf("listener closed: %w", err))
 		wait := b.Next()
 		s.log.Warn("listener closed; rebinding", "error", err, "retry_in", wait)
 		if !retry.Sleep(ctx, wait) {
@@ -171,7 +199,11 @@ func (s *Stitch) serve(ctx context.Context, l edge.Listener, zB ziti.Context) er
 
 	g := newGate(l, edge.Precedence(ziti.GetPrecedenceForLabel(s.cfg.From.Precedence)),
 		func(ctx context.Context) bool { return s.egressReachable(ctx, zB) }, s.log)
-	defer g.stop()
+	s.gate.Store(g)
+	defer func() {
+		s.gate.Store(nil)
+		g.stop()
+	}()
 
 	for {
 		in, err := l.AcceptEdge()
@@ -190,6 +222,7 @@ func (s *Stitch) serve(ctx context.Context, l edge.Listener, zB ziti.Context) er
 // dial failure rather than a connection that opens and drops at once.
 func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 	start := time.Now()
+	s.track.acceptedOne()
 	log := s.log.With(
 		"a_circuit", in.GetCircuitId(),
 		"dialer_identity_id", in.GetDialerIdentityId(),
@@ -203,6 +236,7 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 	if errors.Is(err, errTooManyHops) {
 		log.Warn("connection refused: it has passed through too many stitches, which suggests a loop")
 		in.CompleteAcceptFailed(errLoopRefused)
+		s.track.failedOne(errTooManyHops)
 		return
 	}
 	if err != nil {
@@ -217,6 +251,7 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 	if err != nil {
 		log.Warn("connection failed: cannot reach the egress service", "error", err, "dial_time", time.Since(start))
 		in.CompleteAcceptFailed(errUpstreamUnavailable)
+		s.track.failedOne(fmt.Errorf("cannot reach %s: %w", s.cfg.To.Service, err))
 		s.lastAppData.Store(&appData)
 		g.failed()
 		return
@@ -231,8 +266,17 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 	}
 	log.Info("connection opened", "dial_time", time.Since(start))
 
-	aToB, bToA, err := splice(in, out, s.cfg.IdleTimeout)
-	attrs := []any{"bytes_to_egress", aToB, "bytes_to_ingress", bToA, "duration", time.Since(start)}
+	id, live := s.track.opened(ConnStatus{
+		Stitch:             s.cfg.Name,
+		DialerIdentityID:   in.GetDialerIdentityId(),
+		DialerIdentityName: in.GetDialerIdentityName(),
+		ACircuit:           in.GetCircuitId(),
+		BCircuit:           out.GetCircuitId(),
+		Opened:             start,
+	})
+	defer s.track.closed(id)
+	err = splice(in, out, s.cfg.IdleTimeout, &live.toEgress, &live.toIngress)
+	attrs := []any{"bytes_to_egress", live.toEgress.Load(), "bytes_to_ingress", live.toIngress.Load(), "duration", time.Since(start)}
 	if err != nil {
 		attrs = append(attrs, "error", err)
 	}

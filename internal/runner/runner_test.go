@@ -29,6 +29,8 @@ import (
 	"github.com/openziti/sdk-golang/ziti"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/network"
+	"github.com/netfoundry/ziti-stitch/internal/stitch"
 )
 
 // recorder collects what the fakes did, in order.
@@ -84,6 +86,8 @@ func (f *fakeNetwork) Name() string { return f.name }
 
 func (f *fakeNetwork) Context(context.Context) (ziti.Context, error) { return nil, nil }
 
+func (f *fakeNetwork) Status() network.Status { return network.Status{Name: f.name} }
+
 func (f *fakeNetwork) Run(ctx context.Context) {
 	f.rec.add("net start %s@%s", f.name, f.path)
 	<-ctx.Done()
@@ -104,6 +108,12 @@ func (f *fakeStitch) Run(ctx context.Context) {
 }
 
 func (f *fakeStitch) Wait() { <-f.drained }
+
+func (f *fakeStitch) Status() stitch.Status { return stitch.Status{Name: f.cfg.Name} }
+
+func (f *fakeStitch) Connections() []stitch.ConnStatus {
+	return []stitch.ConnStatus{{Stitch: f.cfg.Name, ACircuit: fmt.Sprintf("%s-cost%d", f.cfg.Name, f.cfg.From.Cost)}}
+}
 
 type harness struct {
 	r   *Runner
@@ -284,5 +294,45 @@ func TestShutdownTimeoutStopsNetworksAnyway(t *testing.T) {
 	}
 	if !h.rec.has("net stop a@a.json") || !h.rec.has("net stop b@b.json") {
 		t.Errorf("networks still running: %v", h.rec.events)
+	}
+}
+
+func TestSnapshotIncludesDrainingConnections(t *testing.T) {
+	h := newHarness()
+	h.r.Apply(dir(abNets, st("s1", "a", "b", 0), st("s2", "a", "b", 0)))
+	h.rec.waitFor(t, "stitch start s2 cost=0")
+	h.r.Apply(dir(abNets, st("s1", "a", "b", 0), st("s2", "a", "b", 5)))
+	h.rec.waitFor(t, "stitch start s2 cost=5")
+
+	snap := h.r.Snapshot()
+	var names []string
+	for _, n := range snap.Networks {
+		names = append(names, n.Name)
+	}
+	if !slices.Equal(names, []string{"a", "b"}) {
+		t.Errorf("networks = %v", names)
+	}
+	if len(snap.Stitches) != 2 || snap.Stitches[0].Name != "s1" || snap.Stitches[1].Name != "s2" {
+		t.Errorf("stitches = %+v", snap.Stitches)
+	}
+	if snap.Draining != 1 {
+		t.Errorf("draining = %d, want the old s2", snap.Draining)
+	}
+	var circuits []string
+	for _, c := range snap.Connections {
+		circuits = append(circuits, c.ACircuit)
+	}
+	slices.Sort(circuits)
+	if !slices.Equal(circuits, []string{"s1-cost0", "s2-cost0", "s2-cost5"}) {
+		t.Errorf("connections = %v", circuits)
+	}
+
+	h.drain("s2", 0)
+	deadline := time.Now().Add(2 * time.Second)
+	for h.r.Snapshot().Draining != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if d := h.r.Snapshot().Draining; d != 0 {
+		t.Errorf("draining = %d after it drained", d)
 	}
 }

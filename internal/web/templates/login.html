@@ -1,0 +1,9 @@
+{{define "content"}}
+<div class="card login-box">
+  <h1>Sign in</h1>
+  {{if .Data}}<div class="flash err">{{.Data}}</div>{{end}}
+  <p>Sign in with a one-time link. On the machine running ziti-stitch, as a user who can change its configuration, run:</p>
+  <pre>ziti-stitch web login</pre>
+  <p class="muted small">Add <code>--config-dir</code> if the service uses one, and run it with <code>sudo</code> if the configuration belongs to root. The link works once, for five minutes.</p>
+</div>
+{{end}}

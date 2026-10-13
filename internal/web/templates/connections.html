@@ -1,0 +1,31 @@
+{{define "content"}}
+<div class="page-head">
+  <div class="page-head-text"><h1>Connections</h1><p class="muted">Open connections, refreshed every two seconds.</p></div>
+</div>
+<div class="card" hx-get="/connections" hx-trigger="every 2s" hx-swap="innerHTML">
+{{template "conn-table" .}}
+</div>
+{{end}}
+
+{{define "conn-table"}}
+{{with .Data}}
+{{if .Connections}}
+<div class="scroll-x"><table>
+  <thead><tr><th>Stitch</th><th>Dialer</th><th>Open for</th><th class="num">To service / back</th><th>Circuits (ingress / egress)</th></tr></thead>
+  <tbody>
+  {{range .Connections}}
+  <tr>
+    <td><a href="/stitches/{{.Stitch}}">{{.Stitch}}</a></td>
+    <td>{{if .DialerIdentityName}}{{.DialerIdentityName}}{{else}}<code class="small">{{.DialerIdentityID}}</code>{{end}}</td>
+    <td class="nowrap">{{duration (since .Opened)}}</td>
+    <td class="num nowrap">{{bytes .BytesToEgress}} / {{bytes .BytesToIngress}}</td>
+    <td><code class="small">{{.ACircuit}}</code> / <code class="small">{{.BCircuit}}</code></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}
+<p class="muted flush-top">No open connections.</p>
+{{end}}
+{{end}}
+{{end}}

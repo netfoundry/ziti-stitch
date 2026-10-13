@@ -22,6 +22,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -111,4 +112,22 @@ func Enroll(token string) ([]byte, error) {
 		return nil, fmt.Errorf("enrolling: %w", err)
 	}
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// DescribeExpiry renders a certificate expiry for people, e.g.
+// "2027-10-12 (in 365 days)".
+func DescribeExpiry(notAfter, now time.Time) string {
+	if notAfter.IsZero() {
+		return "unknown"
+	}
+	date := notAfter.Format(time.DateOnly)
+	days := int(math.Round(notAfter.Sub(now).Hours() / 24))
+	switch {
+	case !now.Before(notAfter):
+		return date + " (EXPIRED)"
+	case days == 0:
+		return date + " (today)"
+	default:
+		return fmt.Sprintf("%s (in %d days)", date, days)
+	}
 }

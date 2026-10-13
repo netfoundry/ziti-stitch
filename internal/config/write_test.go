@@ -158,3 +158,21 @@ func TestSuggestName(t *testing.T) {
 		}
 	}
 }
+
+func TestEditValidatesBeforeSaving(t *testing.T) {
+	dir := writeDir(t, twoNetworks(""))
+	d, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.Edit(func(d *Dir) error {
+		d.Stitches = append(d.Stitches, Stitch{Name: "s", From: Ingress{Network: "acme", Service: "a"}, To: Egress{Network: "nowhere", Service: "b"}})
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "not saved") {
+		t.Fatalf("err = %v", err)
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, StitchesFileName)); err != nil || len(raw) != 0 {
+		t.Errorf("an invalid edit was saved: %q, %v", raw, err)
+	}
+}

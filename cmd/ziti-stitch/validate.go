@@ -67,7 +67,7 @@ Dial on the services it dials. Problems name the policy that is missing.
 					fmt.Fprintf(out, "problem  network %s: %v\n", n.Name, err)
 				case !info.CertNotAfter.IsZero() && info.CertNotAfter.Sub(now) < certWarning:
 					problems++
-					fmt.Fprintf(out, "problem  network %s: certificate expires %s\n", n.Name, describeExpiry(info.CertNotAfter, now))
+					fmt.Fprintf(out, "problem  network %s: certificate expires %s\n", n.Name, network.DescribeExpiry(info.CertNotAfter, now))
 				}
 			}
 			if offline {

@@ -22,6 +22,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ type Network interface {
 	stitch.Network
 	// Run runs until ctx is done, then releases everything.
 	Run(ctx context.Context)
+	Status() network.Status
 }
 
 // Stitch is a stitch as the runner drives it.
@@ -43,6 +45,8 @@ type Stitch interface {
 	Run(ctx context.Context)
 	// Wait blocks until those connections have finished.
 	Wait()
+	Status() stitch.Status
+	Connections() []stitch.ConnStatus
 }
 
 // Runner owns the running networks and stitches.
@@ -60,8 +64,9 @@ type Runner struct {
 	networks map[string]*netEntry    // by name; the current entry for each
 	live     map[*netEntry]bool      // every network not yet stopped, retired ones included
 	stitches map[string]*stitchEntry // by name; running ones only
+	draining map[*stitchEntry]bool   // stopped, still finishing connections
 
-	draining    sync.WaitGroup // stopped stitches still finishing connections
+	drainingWG  sync.WaitGroup
 	netsRunning sync.WaitGroup
 }
 
@@ -97,6 +102,7 @@ func newRunner(log *slog.Logger, newNetwork func(name, path string) Network, new
 		networks:   map[string]*netEntry{},
 		live:       map[*netEntry]bool{},
 		stitches:   map[string]*stitchEntry{},
+		draining:   map[*stitchEntry]bool{},
 	}
 }
 
@@ -172,6 +178,53 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 	return c
 }
 
+// Snapshot is the running state, for display.
+type Snapshot struct {
+	Networks []network.Status // the current network for each name, by name
+	Stitches []stitch.Status  // running stitches, by name
+	// Draining counts stopped stitches still finishing connections.
+	Draining int
+	// Connections are the open connections of running and draining
+	// stitches, oldest first.
+	Connections []stitch.ConnStatus
+}
+
+// Snapshot reports what is running.
+func (r *Runner) Snapshot() Snapshot {
+	r.mu.Lock()
+	var snap Snapshot
+	nets := make([]Network, 0, len(r.networks))
+	for _, n := range r.networks {
+		nets = append(nets, n.nw)
+	}
+	stitches := make([]Stitch, 0, len(r.stitches))
+	for _, e := range r.stitches {
+		stitches = append(stitches, e.st)
+	}
+	draining := make([]Stitch, 0, len(r.draining))
+	for e := range r.draining {
+		draining = append(draining, e.st)
+	}
+	r.mu.Unlock()
+
+	// Outside mu: these take their own locks.
+	for _, n := range nets {
+		snap.Networks = append(snap.Networks, n.Status())
+	}
+	for _, st := range stitches {
+		snap.Stitches = append(snap.Stitches, st.Status())
+		snap.Connections = append(snap.Connections, st.Connections()...)
+	}
+	for _, st := range draining {
+		snap.Connections = append(snap.Connections, st.Connections()...)
+	}
+	snap.Draining = len(draining)
+	slices.SortFunc(snap.Networks, func(a, b network.Status) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(snap.Stitches, func(a, b stitch.Status) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(snap.Connections, func(a, b stitch.ConnStatus) int { return a.Opened.Compare(b.Opened) })
+	return snap
+}
+
 // Shutdown stops every stitch, waits up to timeout for their connections
 // to finish, then stops every network (which ends whatever is left). It
 // reports whether everything finished in time.
@@ -190,7 +243,7 @@ func (r *Runner) Shutdown(timeout time.Duration) bool {
 
 	drained := make(chan struct{})
 	go func() {
-		r.draining.Wait()
+		r.drainingWG.Wait()
 		close(drained)
 	}()
 	inTime := true
@@ -248,12 +301,14 @@ func (r *Runner) startStitch(cfg config.Stitch, from, to *netEntry) {
 // the background, then releases its networks. The caller holds mu.
 func (r *Runner) stopStitch(e *stitchEntry) {
 	delete(r.stitches, e.cfg.Name)
+	r.draining[e] = true
 	e.cancel()
-	r.draining.Go(func() {
+	r.drainingWG.Go(func() {
 		<-e.done
 		e.st.Wait()
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		delete(r.draining, e)
 		r.release(e.from)
 		r.release(e.to)
 	})

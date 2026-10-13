@@ -78,6 +78,7 @@ func (n *Network) keepRenewed(ctx context.Context, zctx ziti.Context) {
 			if leaf, lerr := currentCert(clt); lerr == nil && time.Until(leaf.NotAfter) < expiryWarning {
 				level = slog.LevelError
 			}
+			n.problem(fmt.Errorf("certificate renewal failed: %w", err))
 			n.log.Log(ctx, level, "certificate renewal failed; retrying", "error", err, "retry_in", wait)
 		}
 		if !retry.Sleep(ctx, wait) {
@@ -237,6 +238,7 @@ func (n *Network) promote(clt *ziti.CtrlClient, raw []byte) error {
 	if err != nil {
 		return err
 	}
+	n.updateStatus(func(s *Status) { s.CertNotAfter = leaf.NotAfter })
 	n.log.Info("certificate renewed", "expires", leaf.NotAfter)
 	return nil
 }

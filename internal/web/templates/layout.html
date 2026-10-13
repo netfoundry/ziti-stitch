@@ -1,0 +1,71 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en"{{if .Theme}} data-theme="{{.Theme}}"{{end}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · Ziti Stitch</title>
+{{/* htmx would insert a stylesheet for its request indicators, which the
+     content security policy refuses; nothing here uses them. */}}
+<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/console.js" defer></script>
+</head>
+<body{{if .SignedIn}} class="console" hx-headers='{"X-CSRF-Token": "{{.CSRF}}"}'{{end}}>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="Ziti Stitch home">
+    <img class="nf-logo nf-logo-light" src="/static/netfoundry-logo.svg" alt="NetFoundry">
+    <img class="nf-logo nf-logo-reverse" src="/static/netfoundry-logo-reverse.svg" alt="" aria-hidden="true">
+    <span class="brand-name">Ziti Stitch</span>
+  </a>
+  <span class="spacer"></span>
+  <div class="topbar-tools" id="topbar-tools">
+    <select class="theme-pick" aria-label="Colour theme" data-theme-pick>
+      <option value="">System</option>
+      <option value="light"{{if eq .Theme "light"}} selected{{end}}>Light</option>
+      <option value="dark"{{if eq .Theme "dark"}} selected{{end}}>Dark</option>
+    </select>
+    {{if .SignedIn}}
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn small">Sign out</button></form>
+    {{end}}
+  </div>
+  {{if .SignedIn}}
+  <button type="button" class="nav-toggle" aria-label="Menu" aria-expanded="false" aria-controls="topbar-tools sidenav" data-nav-toggle>&#9776;</button>
+  {{end}}
+</header>
+{{if .SignedIn}}
+<div class="shell">
+  <nav class="sidenav" id="sidenav">
+    <a href="/"{{if eq .Nav "overview"}} class="active"{{end}}>Overview</a>
+    <a href="/stitches"{{if eq .Nav "stitches"}} class="active"{{end}}>Stitches</a>
+    <a href="/networks"{{if eq .Nav "networks"}} class="active"{{end}}>Networks</a>
+    <a href="/connections"{{if eq .Nav "connections"}} class="active"{{end}}>Connections</a>
+    <a href="/events"{{if eq .Nav "events"}} class="active"{{end}}>Events</a>
+    <a href="/docs/" class="nav-docs{{if eq .Nav "docs"}} active{{end}}">Documentation</a>
+    <span class="nav-version">{{.Version}}</span>
+  </nav>
+  <main id="main" tabindex="-1">
+  {{if .Flash}}<div class="flash ok">{{.Flash}}</div>{{end}}
+  {{template "content" .}}
+  </main>
+</div>
+{{else}}
+<main id="main" tabindex="-1">
+{{template "content" .}}
+</main>
+{{end}}
+</body>
+</html>
+{{end}}
+
+{{/* A stitch's state, from its config and status (nil when not running). */}}
+{{define "stitch-state"}}{{if .Cfg.Disabled}}<span class="pill off">disabled</span>{{else if .Status}}<span class="pill {{stateClass .Status.State}}">{{.Status.State}}</span> <span class="muted small">{{ago .Status.Since}}</span>{{else}}<span class="pill off">not running</span>{{end}}{{end}}
+
+{{/* A network's state, from its row. */}}
+{{define "net-state"}}{{if not .Status}}<span class="pill off">not in use</span>{{else if .Status.Ready}}<span class="pill ok">ready</span>{{else}}<span class="pill warn">connecting</span>{{end}}{{end}}
+
+{{/* The most recent problem, with how long ago it was. */}}
+{{define "problem"}}{{if .Err}}<div class="hint problem">{{ago .ErrAt}}: {{.Err}}</div>{{end}}{{end}}
+
+{{define "config-error"}}{{if .ConfigErr}}<div class="flash err"><strong>The configuration on disk is not valid</strong>, so the last valid one is still running. Fix it here or in the files:<pre class="flush-bottom">{{.ConfigErr}}</pre></div>{{end}}{{end}}

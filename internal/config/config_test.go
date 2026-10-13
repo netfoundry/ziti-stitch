@@ -328,3 +328,18 @@ func TestDefaultDirHonorsEnv(t *testing.T) {
 		t.Fatalf("DefaultDir() = %q, %v", d, err)
 	}
 }
+
+func TestWebListenMustBeLoopback(t *testing.T) {
+	for _, ok := range []string{"127.0.0.1:8474", "[::1]:8474", "localhost:9000", "127.0.0.2:80"} {
+		dir := writeDir(t, map[string]string{ConfigFileName: "web:\n  listen: \"" + ok + "\"\n"})
+		if _, err := Load(dir); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"0.0.0.0:8474", "192.168.1.5:8474", "example.com:80", "127.0.0.1", "127.0.0.1:http", "127.0.0.1:70000"} {
+		dir := writeDir(t, map[string]string{ConfigFileName: "web:\n  listen: \"" + bad + "\"\n"})
+		if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), "web.listen") {
+			t.Errorf("%s: err = %v", bad, err)
+		}
+	}
+}

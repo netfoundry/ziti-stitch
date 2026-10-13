@@ -1,0 +1,55 @@
+{{define "content"}}
+{{with .Data}}
+<h1>Overview</h1>
+{{template "config-error" .}}
+<div class="stats">
+  <div class="stat"><div class="n">{{.Listening}}<span class="muted small"> of {{.Enabled}}</span></div><div class="l">stitches listening</div></div>
+  <div class="stat"><div class="n">{{len .Snap.Connections}}</div><div class="l">open connections{{if .Snap.Draining}} ({{.Snap.Draining}} stitch{{if gt .Snap.Draining 1}}es{{end}} draining){{end}}</div></div>
+  <div class="stat"><div class="n">{{.Ready}}<span class="muted small"> of {{len .Snap.Networks}}</span></div><div class="l">networks ready</div></div>
+  <div class="stat"><div class="n">{{duration (since .Started)}}</div><div class="l">uptime</div></div>
+</div>
+<div class="card">
+  <h2>Stitches</h2>
+  {{if .Stitches}}
+  <div class="scroll-x"><table>
+    <thead><tr><th>Name</th><th>From</th><th>To</th><th>State</th><th class="num">Open</th><th class="num">Accepted</th><th class="num">Failed</th></tr></thead>
+    <tbody>
+    {{range .Stitches}}
+    <tr>
+      <td><a href="/stitches/{{.Cfg.Name}}">{{.Cfg.Name}}</a></td>
+      <td><code>{{.Cfg.From.Network}}:{{.Cfg.From.Service}}</code></td>
+      <td><code>{{.Cfg.To.Network}}:{{.Cfg.To.Service}}</code></td>
+      <td>{{template "stitch-state" .}}{{with .Status}}{{template "problem" .}}{{end}}</td>
+      <td class="num">{{with .Status}}{{.Active}}{{end}}</td>
+      <td class="num">{{with .Status}}{{.Accepted}}{{end}}</td>
+      <td class="num">{{with .Status}}{{.Failed}}{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="muted">No stitches yet. <a href="/stitches">Add one</a>.</p>
+  {{end}}
+</div>
+<div class="card">
+  <h2>Networks</h2>
+  {{if .Networks}}
+  <div class="scroll-x"><table>
+    <thead><tr><th>Name</th><th>Identity</th><th>State</th><th>Certificate</th></tr></thead>
+    <tbody>
+    {{range .Networks}}
+    <tr>
+      <td>{{.Name}}</td>
+      <td>{{with .Status}}{{.IdentityName}}{{end}}</td>
+      <td>{{template "net-state" .}}{{with .Status}}{{template "problem" .}}{{end}}</td>
+      <td class="small">{{expiry .CertNotAfter}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="muted">No networks yet. Enroll one with <code>ziti-stitch enroll --jwt &lt;file&gt;</code>.</p>
+  {{end}}
+</div>
+{{end}}
+{{end}}

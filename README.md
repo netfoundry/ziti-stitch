@@ -33,14 +33,28 @@ While `run` is up, changes made with the CLI (or by hand) are applied on their o
 | `stitch add \| list \| remove \| enable \| disable` | `stitch add --help` for app data, precedence, timeouts |
 | `validate [--offline]` | |
 | `run [--log-file]` | SIGHUP forces a reload |
+| `web login` | a one-time sign-in link for the web UI |
 | `service install \| uninstall \| start \| stop \| restart \| status` | see [docs/install.md](docs/install.md) |
+
+## Web UI
+
+Optional, and off until you turn it on in `config.yaml`:
+
+```yaml
+web:
+  listen: 127.0.0.1:8474   # loopback only
+```
+
+Restart ziti-stitch, then run `ziti-stitch web login` (with `sudo` if the config belongs to root) and open the link it prints. It shows the stitches, networks, open connections and recent events, lets you add, edit, enable, disable and remove stitches, and tests what each network's identity can do. Enrolling stays in the CLI.
+
+There are no passwords: a link works once, for five minutes, and only someone who can write the config directory can make one.
 
 ## Config directory
 
 ```
 networks/acme.json      identity on network "acme", one file per network
 stitches.yaml           written by the stitch commands; can be edited by hand
-config.yaml             optional: log.level (debug|info|warn|error), log.format (text|json)
+config.yaml             optional: log.level (debug|info|warn|error), log.format (text|json), web.listen
 ```
 
 ```yaml

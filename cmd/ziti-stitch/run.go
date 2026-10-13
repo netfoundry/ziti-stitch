@@ -33,12 +33,17 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/events"
 	"github.com/netfoundry/ziti-stitch/internal/runner"
+	"github.com/netfoundry/ziti-stitch/internal/web"
 )
 
 // drainTimeout is how long shutdown waits for open connections to finish
 // before closing them.
 const drainTimeout = 30 * time.Second
+
+// eventsKept is how many recent log records the web UI can show.
+const eventsKept = 2000
 
 func newRunCmd(configDir *string) *cobra.Command {
 	var logFile string
@@ -84,7 +89,8 @@ immediately.`,
 				defer lf.Close()
 				w = lf
 			}
-			log, setLevel := newLogger(d.Config.Log, w)
+			rec := events.NewRecorder(eventsKept)
+			log, setLevel := newLogger(d.Config.Log, w, rec)
 			if loadErr != nil {
 				log.Error("configuration is not valid; running nothing until it is fixed", "error", loadErr)
 			}
@@ -93,7 +99,7 @@ immediately.`,
 			// its own API, not signals.
 			if runtime.GOOS == "windows" && !service.Interactive() {
 				s, err := service.New(&program{run: func(ctx context.Context) {
-					run(ctx, func() {}, d, log, setLevel)
+					run(ctx, func() {}, d, log, setLevel, rec)
 				}}, &service.Config{Name: serviceName})
 				if err != nil {
 					return err
@@ -102,7 +108,7 @@ immediately.`,
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			run(ctx, stop, d, log, setLevel)
+			run(ctx, stop, d, log, setLevel, rec)
 			return nil
 		},
 	}
@@ -121,10 +127,13 @@ func openLogFile(path string) (*lumberjack.Logger, error) {
 // run applies d and keeps applying changes to it until ctx is done, then
 // shuts down. stopSignals is called once shutdown starts so that a second
 // interrupt gets the default behavior and kills the process.
-func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logger, setLevel func(string)) {
+func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logger, setLevel func(string), rec *events.Recorder) {
 	r := runner.New(log)
 	r.Apply(d)
 	logRunning(log, d)
+	if d.Config.Web.Listen != "" {
+		startWeb(ctx, d, r, rec, log)
+	}
 
 	reload := make(chan struct{}, 1)
 	requestReload := func() {
@@ -161,6 +170,21 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logge
 	}
 }
 
+// startWeb serves the web UI until ctx is done. A UI that cannot start is
+// logged and does not stop the stitches.
+func startWeb(ctx context.Context, d *config.Dir, r *runner.Runner, rec *events.Recorder, log *slog.Logger) {
+	srv, err := web.New(web.Options{ConfigDir: d.Path, Listen: d.Config.Web.Listen, Version: version, Runner: r, Events: rec, Log: log})
+	if err != nil {
+		log.Error("cannot start the web UI", "error", err)
+		return
+	}
+	go func() {
+		if err := srv.Serve(ctx); err != nil {
+			log.Error("web UI stopped", "error", err)
+		}
+	}()
+}
+
 func logRunning(log *slog.Logger, d *config.Dir) {
 	enabled := 0
 	for _, s := range d.Stitches {
@@ -189,6 +213,9 @@ func reloadConfig(cur *config.Dir, r *runner.Runner, log *slog.Logger, setLevel 
 	}
 	if d.Config.Log.Format != cur.Config.Log.Format {
 		log.Warn("log.format changes take effect after a restart", "format", cur.Config.Log.Format)
+	}
+	if d.Config.Web != cur.Config.Web {
+		log.Warn("web changes take effect after a restart", "listen", cur.Config.Web.Listen)
 	}
 	if c := r.Apply(d); c != (runner.Changes{}) {
 		log.Info("configuration applied", "started", c.Started, "restarted", c.Restarted, "stopped", c.Stopped)

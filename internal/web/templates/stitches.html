@@ -1,0 +1,34 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <div class="page-head-text"><h1>Stitches</h1><p class="muted">Each stitch binds a service on one network and dials a service on another for every connection.</p></div>
+</div>
+{{template "config-error" .}}
+<div class="card">
+  {{if .Stitches}}
+  <div class="scroll-x"><table>
+    <thead><tr><th>Name</th><th>From</th><th>To</th><th>App data</th><th>State</th><th class="num">Open</th><th class="num">To service / back</th></tr></thead>
+    <tbody>
+    {{range .Stitches}}
+    <tr>
+      <td><a href="/stitches/{{.Cfg.Name}}">{{.Cfg.Name}}</a></td>
+      <td><code>{{.Cfg.From.Network}}:{{.Cfg.From.Service}}</code></td>
+      <td><code>{{.Cfg.To.Network}}:{{.Cfg.To.Service}}</code></td>
+      <td>{{.Cfg.AppData}}</td>
+      <td>{{template "stitch-state" .}}</td>
+      <td class="num">{{with .Status}}{{.Active}}{{end}}</td>
+      <td class="num nowrap">{{with .Status}}{{bytes .BytesToEgress}} / {{bytes .BytesToIngress}}{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="muted flush-top">No stitches yet.</p>
+  {{end}}
+</div>
+<details class="card"{{if .Form.Err}} open{{end}}>
+  <summary><h2 class="inline-heading">Add a stitch</h2></summary>
+  {{template "stitch-form" .Form}}
+</details>
+{{end}}
+{{end}}

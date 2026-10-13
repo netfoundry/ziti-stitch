@@ -1,0 +1,45 @@
+{{/* The add and edit form, given a stitchForm. */}}
+{{define "stitch-form"}}
+{{if .Err}}<div class="flash err"><pre class="flush-bottom">{{.Err}}</pre></div>{{end}}
+{{if not .Networks}}
+<p class="muted">There are no networks to stitch yet. Enroll them with <code>ziti-stitch enroll --jwt &lt;file&gt;</code>.</p>
+{{else}}
+<form method="post" class="stack"{{if not .IsNew}} action="/stitches/{{.Stitch.Name}}"{{else}} action="/stitches"{{end}}>
+  {{if .IsNew}}
+  <div><label for="name">Name</label><input type="text" id="name" name="name" class="w-16" value="{{.Stitch.Name}}" required pattern="[a-z0-9][a-z0-9_-]{0,62}">
+  <div class="hint">Lower case letters, digits, - and _.</div></div>
+  {{end}}
+  <fieldset>
+    <legend>From: the service ziti-stitch binds</legend>
+    <div class="row">
+      <div><label for="from_network">Network</label><select id="from_network" name="from_network" class="w-16">{{range .Networks}}<option{{if eq . $.Stitch.From.Network}} selected{{end}}>{{.}}</option>{{end}}</select></div>
+      <div class="grow"><label for="from_service">Service</label><input type="text" id="from_service" name="from_service" value="{{.Stitch.From.Service}}" required></div>
+    </div>
+    <div class="row">
+      <div><label for="precedence">Precedence</label><select id="precedence" name="precedence" class="w-12">
+        {{range $p := list "default" "required" "failed"}}<option{{if eq $p $.Stitch.From.Precedence}} selected{{end}}>{{$p}}</option>{{end}}
+      </select></div>
+      <div><label for="cost">Cost</label><input type="number" id="cost" name="cost" class="w-8" min="0" max="65535" value="{{.Stitch.From.Cost}}"></div>
+    </div>
+    <div class="hint">Run more than one instance for high availability: <code>required</code> on the primary and <code>default</code> on standbys, or the same values everywhere to share the load.</div>
+  </fieldset>
+  <fieldset>
+    <legend>To: the service ziti-stitch dials</legend>
+    <div class="row">
+      <div><label for="to_network">Network</label><select id="to_network" name="to_network" class="w-16">{{range .Networks}}<option{{if eq . $.Stitch.To.Network}} selected{{end}}>{{.}}</option>{{end}}</select></div>
+      <div class="grow"><label for="to_service">Service</label><input type="text" id="to_service" name="to_service" value="{{.Stitch.To.Service}}" required></div>
+    </div>
+    <div><label for="connect_timeout">Connect timeout</label><input type="text" id="connect_timeout" name="connect_timeout" class="w-8" value="{{.ConnectTimeout}}"></div>
+  </fieldset>
+  <div><label for="app_data">App data</label><select id="app_data" name="app_data" class="w-16">
+    {{range $a := list "passthrough" "strip" "annotate"}}<option{{if eq $a (print $.Stitch.AppData)}} selected{{end}}>{{$a}}</option>{{end}}
+  </select>
+  <div class="hint"><strong>passthrough</strong> forwards what the dialer sent (e.g. a tunneler's intercepted address) unchanged; <strong>strip</strong> sends none; <strong>annotate</strong> adds a <code>ziti_stitch</code> object naming the stitch and the original dialer, which reveals ingress identity names to the egress network.</div></div>
+  <div><label for="idle_timeout">Idle timeout</label><input type="text" id="idle_timeout" name="idle_timeout" class="w-8" value="{{.IdleTimeout}}" placeholder="never">
+  <div class="hint">Close connections with no traffic for this long, e.g. <code>1h</code>. Empty for never.</div></div>
+  <div><label class="check"><input type="checkbox" name="disabled"{{if .Stitch.Disabled}} checked{{end}}> Disabled</label></div>
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="actions"><button class="btn primary">{{if .IsNew}}Add stitch{{else}}Save{{end}}</button>{{if not .IsNew}} <a class="btn" href="/stitches">Cancel</a>{{end}}</div>
+</form>
+{{end}}
+{{end}}

@@ -41,7 +41,8 @@ type halfConn interface {
 }
 
 // splice copies between a and b in both directions until both are done,
-// and returns the byte counts and the first error.
+// counting bytes into toB and toA as they move, and returns the first
+// error.
 //
 // When one side finishes sending (EOF), the other side's sending half is
 // closed so its far end sees EOF too, while the opposite direction keeps
@@ -49,7 +50,7 @@ type halfConn interface {
 // error in either direction closes both connections. With idle > 0, so
 // does no traffic in either direction for that long. Both connections are
 // closed when splice returns.
-func splice(a, b halfConn, idle time.Duration) (aToB, bToA int64, err error) {
+func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err error) {
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
@@ -84,8 +85,8 @@ func splice(a, b halfConn, idle time.Duration) (aToB, bToA int64, err error) {
 	}
 
 	errs := make(chan error, 2)
-	go func() { errs <- copyHalf(b, a, &aToB, &lastActive) }()
-	go func() { errs <- copyHalf(a, b, &bToA, &lastActive) }()
+	go func() { errs <- copyHalf(b, a, toB, &lastActive) }()
+	go func() { errs <- copyHalf(a, b, toA, &lastActive) }()
 	for range 2 {
 		if e := <-errs; e != nil {
 			if err == nil {
@@ -99,12 +100,12 @@ func splice(a, b halfConn, idle time.Duration) (aToB, bToA int64, err error) {
 	if idled.Load() {
 		err = errIdle
 	}
-	return aToB, bToA, err
+	return err
 }
 
 // copyHalf copies src to dst until src ends, then closes dst's sending
 // half. n and lastActive are updated as bytes move.
-func copyHalf(dst, src halfConn, n *int64, lastActive *atomic.Int64) error {
+func copyHalf(dst, src halfConn, n, lastActive *atomic.Int64) error {
 	bp := copyBuffers.Get().(*[]byte)
 	defer copyBuffers.Put(bp)
 	buf := *bp
@@ -113,7 +114,7 @@ func copyHalf(dst, src halfConn, n *int64, lastActive *atomic.Int64) error {
 		if nr > 0 {
 			lastActive.Store(time.Now().UnixNano())
 			nw, werr := dst.Write(buf[:nr])
-			*n += int64(nw)
+			n.Add(int64(nw))
 			if werr != nil {
 				return werr
 			}

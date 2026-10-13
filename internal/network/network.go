@@ -64,16 +64,49 @@ type Network struct {
 
 	ready chan struct{} // closed once zctx is set
 	zctx  ziti.Context
+
+	statusMu sync.Mutex
+	status   Status
+}
+
+// Status is a network's state, for display.
+type Status struct {
+	Name         string
+	Ready        bool // authenticated
+	IdentityName string
+	CertNotAfter time.Time
+	// Err is the most recent problem (authenticating before Ready, renewing
+	// after), kept with its time after things recover.
+	Err   string
+	ErrAt time.Time
+}
+
+// Status reports the network's state.
+func (n *Network) Status() Status {
+	n.statusMu.Lock()
+	defer n.statusMu.Unlock()
+	return n.status
+}
+
+func (n *Network) updateStatus(f func(*Status)) {
+	n.statusMu.Lock()
+	defer n.statusMu.Unlock()
+	f(&n.status)
+}
+
+func (n *Network) problem(err error) {
+	n.updateStatus(func(s *Status) { s.Err, s.ErrAt = err.Error(), time.Now() })
 }
 
 // New returns a network for the identity file at path. Nothing happens
 // until Run.
 func New(name, path string, log *slog.Logger) *Network {
 	return &Network{
-		name:  name,
-		path:  path,
-		log:   log.With("network", name),
-		ready: make(chan struct{}),
+		name:   name,
+		path:   path,
+		log:    log.With("network", name),
+		ready:  make(chan struct{}),
+		status: Status{Name: name},
 	}
 }
 
@@ -97,6 +130,9 @@ func (n *Network) Context(ctx context.Context) (ziti.Context, error) {
 // certificate renewed until ctx is done. It closes the Ziti context on the
 // way out.
 func (n *Network) Run(ctx context.Context) {
+	if info, err := ReadInfo(n.path); err == nil {
+		n.updateStatus(func(s *Status) { s.CertNotAfter = info.CertNotAfter })
+	}
 	zctx, ok := n.connect(ctx)
 	if !ok {
 		return
@@ -113,6 +149,12 @@ func (n *Network) Run(ctx context.Context) {
 	} else {
 		n.log.Warn("Ziti context cannot report controller list changes; they will not be saved to the identity file")
 	}
+
+	var identityName string
+	if id, err := zctx.GetCurrentIdentity(); err == nil && id.Name != nil {
+		identityName = *id.Name
+	}
+	n.updateStatus(func(s *Status) { s.Ready, s.IdentityName = true, identityName })
 
 	n.zctx = zctx
 	close(n.ready)
@@ -159,6 +201,7 @@ func (n *Network) connect(ctx context.Context) (ziti.Context, bool) {
 		}
 
 		wait := b.Next()
+		n.problem(fmt.Errorf("cannot authenticate: %w", errors.Join(errs...)))
 		n.log.Error("cannot authenticate; retrying", "error", errors.Join(errs...), "retry_in", wait)
 		if !retry.Sleep(ctx, wait) {
 			return nil, false

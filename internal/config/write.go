@@ -18,6 +18,7 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -68,6 +69,19 @@ func (d *Dir) StitchesUsing(name string) []string {
 		}
 	}
 	return names
+}
+
+// Edit applies change to d, validates the whole result and saves the
+// stitches. Nothing is saved unless the result is valid, so a config that
+// was already invalid can be repaired this way but never saved broken.
+func (d *Dir) Edit(change func(d *Dir) error) error {
+	if err := change(d); err != nil {
+		return err
+	}
+	if err := d.Validate(); err != nil {
+		return fmt.Errorf("not saved, the result would be invalid:\n%w", err)
+	}
+	return d.SaveStitches()
 }
 
 // SaveStitches writes d.Stitches to stitches.yaml. Values equal to their

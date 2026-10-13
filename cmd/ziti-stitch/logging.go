@@ -23,14 +23,16 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/events"
 )
 
 // newLogger returns our logger for cfg, writing to w, and sets up the
 // Ziti SDK's logrus output to match. setLevel changes the level of both
 // later. The SDK is chatty at info (every router connection), so it logs
-// warnings and up unless we are at debug. config.Load has already
-// validated cfg.
-func newLogger(cfg config.Log, w io.Writer) (log *slog.Logger, setLevel func(level string)) {
+// warnings and up unless we are at debug. If rec is not nil it keeps
+// every record at info and up, whatever the level, for the web UI.
+// config.Load has already validated cfg.
+func newLogger(cfg config.Log, w io.Writer, rec *events.Recorder) (log *slog.Logger, setLevel func(level string)) {
 	lv := new(slog.LevelVar)
 	setLevel = func(name string) {
 		var level slog.Level
@@ -46,10 +48,16 @@ func newLogger(cfg config.Log, w io.Writer) (log *slog.Logger, setLevel func(lev
 	opts := &slog.HandlerOptions{Level: lv}
 
 	logrus.SetOutput(w)
+	var h slog.Handler
 	if cfg.Format == "json" {
 		logrus.SetFormatter(newSDKFormatter(&logrus.JSONFormatter{}))
-		return slog.New(slog.NewJSONHandler(w, opts)), setLevel
+		h = slog.NewJSONHandler(w, opts)
+	} else {
+		logrus.SetFormatter(newSDKFormatter(&logrus.TextFormatter{FullTimestamp: true}))
+		h = slog.NewTextHandler(w, opts)
 	}
-	logrus.SetFormatter(newSDKFormatter(&logrus.TextFormatter{FullTimestamp: true}))
-	return slog.New(slog.NewTextHandler(w, opts)), setLevel
+	if rec != nil {
+		h = rec.Handler(h, slog.LevelInfo)
+	}
+	return slog.New(h), setLevel
 }

@@ -22,7 +22,6 @@ import (
 	"io"
 	"io/fs"
 	"maps"
-	"math"
 	"net/url"
 	"os"
 	"slices"
@@ -246,29 +245,12 @@ func newNetworkListCmd(configDir *string) *cobra.Command {
 				controller, expires := "?", "?"
 				if info, err := network.ReadInfo(n.IdentityFile); err == nil {
 					controller = hostOf(info.Controllers[0])
-					expires = describeExpiry(info.CertNotAfter, time.Now())
+					expires = network.DescribeExpiry(info.CertNotAfter, time.Now())
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", n.Name, controller, expires, orDash(strings.Join(d.StitchesUsing(n.Name), ", ")))
 			}
 			return tw.Flush()
 		},
-	}
-}
-
-// describeExpiry renders a certificate expiry for people.
-func describeExpiry(notAfter, now time.Time) string {
-	if notAfter.IsZero() {
-		return "unknown"
-	}
-	date := notAfter.Format(time.DateOnly)
-	days := int(math.Round(notAfter.Sub(now).Hours() / 24))
-	switch {
-	case !now.Before(notAfter):
-		return date + " (EXPIRED)"
-	case days == 0:
-		return date + " (today)"
-	default:
-		return fmt.Sprintf("%s (in %d days)", date, days)
 	}
 }
 
@@ -380,7 +362,7 @@ Problems name the policy the network admin needs to add.`,
 			}
 			out := cmd.OutOrStdout()
 			if info, err := network.ReadInfo(n.IdentityFile); err == nil {
-				fmt.Fprintf(out, "Controller:   %s\nCertificate:  expires %s\n", info.Controllers[0], describeExpiry(info.CertNotAfter, time.Now()))
+				fmt.Fprintf(out, "Controller:   %s\nCertificate:  expires %s\n", info.Controllers[0], network.DescribeExpiry(info.CertNotAfter, time.Now()))
 			}
 			r := diagnose.Probe(n.Name, n.IdentityFile)
 			if r.Err != nil {

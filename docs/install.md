@@ -64,6 +64,23 @@ ziti-stitch service start
 - The service runs as LocalSystem, starts at boot and restarts 5 seconds after a failure.
 - There is no SIGHUP on Windows; config changes are picked up from the files directly.
 
+## The web UI
+
+Off by default. To turn it on, add this to `config.yaml` in the config directory and restart the service:
+
+```yaml
+web:
+  listen: 127.0.0.1:8474
+```
+
+Then, on the same machine:
+
+```
+sudo ziti-stitch web login      # add --config-dir if the service uses one
+```
+
+Open the link it prints; it works once, for five minutes. The UI only listens on loopback. To reach it from another machine, forward the port over SSH (`ssh -L 8474:127.0.0.1:8474 host`).
+
 ## Upgrading
 
 ```

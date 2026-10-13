@@ -1,0 +1,55 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <div class="page-head-text"><h1>Networks</h1><p class="muted">One enrolled identity per network. Enroll, rename and remove them with the <code>ziti-stitch network</code> commands.</p></div>
+</div>
+<div class="card">
+  {{if .Networks}}
+  <div class="scroll-x"><table>
+    <thead><tr><th>Name</th><th>Controller</th><th>Identity</th><th>State</th><th>Certificate</th><th>Used by</th><th></th></tr></thead>
+    <tbody>
+    {{range .Networks}}
+    <tr>
+      <td>{{.Name}}</td>
+      <td><code class="small">{{.Controller}}</code></td>
+      <td>{{with .Status}}{{.IdentityName}}{{end}}</td>
+      <td>{{template "net-state" .}}{{with .Status}}{{template "problem" .}}{{end}}</td>
+      <td class="small">{{expiry .CertNotAfter}}</td>
+      <td class="small">{{range $i, $u := .UsedBy}}{{if $i}}, {{end}}<a href="/stitches/{{$u}}">{{$u}}</a>{{else}}<span class="muted">-</span>{{end}}</td>
+      <td class="cell-actions"><form method="post" action="/networks/{{.Name}}/test" hx-post="/networks/{{.Name}}/test" hx-target="#test-result" hx-swap="innerHTML"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="btn small">Test</button></form></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="muted flush-top">No networks yet. Enroll one with <code>ziti-stitch enroll --jwt &lt;file&gt;</code>.</p>
+  {{end}}
+</div>
+<div id="test-result">{{if .Test}}{{template "network-test" $}}{{end}}</div>
+{{end}}
+{{end}}
+
+{{define "network-test"}}
+{{with .Data.Test}}
+<div class="card">
+  <h2>Test of {{.Name}}</h2>
+  {{if .Report.Err}}
+  <div class="flash err">Cannot authenticate: {{.Report.Err}}</div>
+  {{else}}
+  <p class="small">Authenticated as <strong>{{.Report.IdentityName}}</strong>. Services this identity can see:</p>
+  {{if .Services}}
+  <div class="scroll-x"><table>
+    <thead><tr><th>Service</th><th>Dial</th><th>Bind</th></tr></thead>
+    <tbody>{{range .Services}}<tr><td><code>{{.Name}}</code></td><td>{{if .Dial}}<span class="pill ok">yes</span>{{else}}<span class="muted">-</span>{{end}}</td><td>{{if .Bind}}<span class="pill ok">yes</span>{{else}}<span class="muted">-</span>{{end}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}
+  <p class="muted">None: no service policy covers this identity.</p>
+  {{end}}
+  {{if .Findings}}
+  <h3>Stitches using this network</h3>
+  <ul class="findings">{{range .Findings}}<li>{{if eq .Severity 0}}<span class="pill ok">ok</span>{{else}}<span class="pill bad">problem</span>{{end}} <strong>{{.Stitch}}</strong>: {{.Message}}</li>{{end}}</ul>
+  {{end}}
+  {{end}}
+</div>
+{{end}}
+{{end}}

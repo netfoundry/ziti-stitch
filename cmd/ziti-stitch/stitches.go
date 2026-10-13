@@ -46,21 +46,13 @@ func newStitchCmd(configDir *string) *cobra.Command {
 	return cmd
 }
 
-// editStitches reads the config, lets change edit it, validates the whole
-// result and saves it. A config that was already invalid can be repaired
-// this way, but never saved invalid.
+// editStitches reads the config and applies change through Dir.Edit.
 func editStitches(configDir string, change func(d *config.Dir) error) error {
 	d, err := readDir(configDir)
 	if err != nil {
 		return err
 	}
-	if err := change(d); err != nil {
-		return err
-	}
-	if err := d.Validate(); err != nil {
-		return fmt.Errorf("not saved, the result would be invalid:\n%w", err)
-	}
-	return d.SaveStitches()
+	return d.Edit(change)
 }
 
 // parseEndpoint splits "network:service". Network names cannot contain

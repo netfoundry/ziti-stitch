@@ -1,0 +1,6 @@
+{{define "content"}}
+<h1>Documentation</h1>
+<div class="card">
+  <ul>{{range .Data.Docs}}<li><a href="/docs/{{.Name}}">{{.Title}}</a></li>{{end}}</ul>
+</div>
+{{end}}

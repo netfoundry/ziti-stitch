@@ -1,0 +1,18 @@
+NetFoundry logo
+---------------
+netfoundry-logo-reverse.svg is the "web reverse" lockup, downloaded
+2026-10-09 from
+https://netfoundry.io/wp-content/uploads/2024/07/netfoundry-logo-web-reverse.svg
+and unmodified. Its wordmark and tagline are white, for dark backgrounds.
+
+netfoundry-logo.svg is that same file with the 30 wordmark and tagline
+paths recoloured from #fff to #212a5f, the navy the artwork already uses
+for the icon's circle. The icon, including the white "N" inside it, is
+untouched. It exists because the console has a light theme as well as a
+dark one, and because the published light lockup
+(netfoundry-logo-no-tag-color-horizontal-mediumIcon.svg) is a different
+lockup with no tagline and a different aspect ratio, so swapping between
+the two would change both the wording and the layout with the theme.
+
+If NetFoundry publishes a light-background version of this exact lockup,
+replace netfoundry-logo.svg with it and delete this paragraph.

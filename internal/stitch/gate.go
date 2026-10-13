@@ -100,6 +100,13 @@ func (g *gate) ok() {
 	g.log.Info("egress service is back; restored precedence")
 }
 
+// isDown reports whether the gate has lowered the listener's precedence.
+func (g *gate) isDown() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.down
+}
+
 // stop ends probing. The listener is going away, so its precedence no
 // longer matters.
 func (g *gate) stop() {

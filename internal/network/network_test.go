@@ -19,6 +19,7 @@ package network
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/url"
@@ -225,5 +226,16 @@ func TestContextWaitsForReady(t *testing.T) {
 	defer cancel()
 	if _, err := n.Context(ctx); err == nil {
 		t.Fatal("Context returned before the network was ready")
+	}
+}
+
+func TestStatusBeforeRun(t *testing.T) {
+	n := testNetwork(t)
+	if st := n.Status(); st.Name != "acme" || st.Ready || st.Err != "" {
+		t.Errorf("status = %+v", st)
+	}
+	n.problem(errors.New("controller unreachable"))
+	if st := n.Status(); st.Err != "controller unreachable" || st.ErrAt.IsZero() {
+		t.Errorf("status after a problem = %+v", st)
 	}
 }

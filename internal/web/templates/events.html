@@ -1,0 +1,31 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <div class="page-head-text"><h1>Events</h1><p class="muted">The most recent events since ziti-stitch started, newest first. The full log is in journald, or the log file on macOS and Windows.</p></div>
+</div>
+<form method="get" action="/events" class="card filters">
+  <div><label for="stitch">Stitch</label><select id="stitch" name="stitch" class="w-16"><option value="">All</option>{{range .Stitches}}<option{{if eq . $.Data.Stitch}} selected{{end}}>{{.}}</option>{{end}}</select></div>
+  <div><label for="level">At least</label><select id="level" name="level" class="w-12">{{range $l := list "info" "warn" "error"}}<option{{if eq $l $.Data.Level}} selected{{end}}>{{$l}}</option>{{end}}</select></div>
+  <div><button class="btn">Filter</button></div>
+</form>
+<div class="card">
+  {{if .Events}}
+  <div class="scroll-x"><table>
+    <thead><tr><th>Time</th><th>Level</th><th>Event</th></tr></thead>
+    <tbody>
+    {{range .Events}}
+    <tr>
+      <td class="nowrap small">{{clock .Time}}</td>
+      <td><span class="pill {{levelClass .Level}}">{{.Level}}</span></td>
+      <td>{{.Message}}<div class="attrs">{{range .Attrs}}<span><span class="muted">{{.Key}}=</span>{{.Value}}</span> {{end}}</div></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{if .More}}<p class="hint">Showing the newest {{len .Events}}.</p>{{end}}
+  {{else}}
+  <p class="muted flush-top">No events match.</p>
+  {{end}}
+</div>
+{{end}}
+{{end}}

@@ -1,0 +1,28 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <div class="page-head-text"><h1>Stitch {{.Form.Stitch.Name}}</h1><p><a href="/stitches">All stitches</a></p></div>
+  <div class="page-head-actions">
+    {{if .Form.Stitch.Disabled}}
+    <form method="post" action="/stitches/{{.Form.Stitch.Name}}/enable"><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn">Enable</button></form>
+    {{else}}
+    <form method="post" action="/stitches/{{.Form.Stitch.Name}}/disable" data-confirm="Disable stitch {{.Form.Stitch.Name}}? It stops accepting new connections; open ones finish."><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn">Disable</button></form>
+    {{end}}
+    <form method="post" action="/stitches/{{.Form.Stitch.Name}}/remove" data-confirm="Remove stitch {{.Form.Stitch.Name}}? It stops accepting new connections; open ones finish."><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn danger">Remove</button></form>
+  </div>
+</div>
+{{with .Status}}
+<div class="stats">
+  <div class="stat"><div class="n"><span class="pill {{stateClass .State}}">{{.State}}</span></div><div class="l">since {{ago .Since}}</div></div>
+  <div class="stat"><div class="n">{{.Active}}</div><div class="l">open connections</div></div>
+  <div class="stat"><div class="n">{{.Accepted}}<span class="muted small"> / {{.Failed}} failed</span></div><div class="l">dials accepted</div></div>
+  <div class="stat"><div class="n small">{{bytes .BytesToEgress}} / {{bytes .BytesToIngress}}</div><div class="l">to service / back</div></div>
+</div>
+{{if .Err}}<div class="card"><h2>Most recent problem</h2><p class="small">{{ago .ErrAt}}: {{.Err}}</p></div>{{end}}
+{{end}}
+<div class="card">
+  <h2>Settings</h2>
+  {{template "stitch-form" .Form}}
+</div>
+{{end}}
+{{end}}

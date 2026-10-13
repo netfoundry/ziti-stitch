@@ -25,11 +25,12 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/events"
 )
 
 func TestNewLoggerJSONAtInfo(t *testing.T) {
 	var buf bytes.Buffer
-	log, _ := newLogger(config.Log{Level: "info", Format: "json"}, &buf)
+	log, _ := newLogger(config.Log{Level: "info", Format: "json"}, &buf, nil)
 	log.Debug("hidden")
 	log.Info("shown", "k", "v")
 
@@ -51,7 +52,7 @@ func TestNewLoggerJSONAtInfo(t *testing.T) {
 
 func TestNewLoggerTextAtDebug(t *testing.T) {
 	var buf bytes.Buffer
-	log, _ := newLogger(config.Log{Level: "debug", Format: "text"}, &buf)
+	log, _ := newLogger(config.Log{Level: "debug", Format: "text"}, &buf, nil)
 	log.Debug("shown")
 	if !strings.Contains(buf.String(), "msg=shown") {
 		t.Errorf("output = %q", buf.String())
@@ -63,7 +64,7 @@ func TestNewLoggerTextAtDebug(t *testing.T) {
 
 func TestSetLevelChangesBothLoggers(t *testing.T) {
 	var buf bytes.Buffer
-	log, setLevel := newLogger(config.Log{Level: "warn", Format: "text"}, &buf)
+	log, setLevel := newLogger(config.Log{Level: "warn", Format: "text"}, &buf, nil)
 	log.Info("hidden")
 	setLevel("debug")
 	log.Debug("now shown")
@@ -72,5 +73,18 @@ func TestSetLevelChangesBothLoggers(t *testing.T) {
 	}
 	if logrus.GetLevel() != logrus.InfoLevel {
 		t.Errorf("SDK log level = %v, want info", logrus.GetLevel())
+	}
+}
+
+func TestNewLoggerFeedsTheRecorderBelowItsLevel(t *testing.T) {
+	var buf bytes.Buffer
+	rec := events.NewRecorder(10)
+	log, _ := newLogger(config.Log{Level: "warn", Format: "text"}, &buf, rec)
+	log.Info("for the UI only")
+	if strings.Contains(buf.String(), "for the UI only") {
+		t.Error("an info line reached a warn-level log")
+	}
+	if evs := rec.Events(); len(evs) != 1 || evs[0].Message != "for the UI only" {
+		t.Errorf("recorded = %+v", evs)
 	}
 }
