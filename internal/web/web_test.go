@@ -34,6 +34,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -541,7 +542,7 @@ func TestSessionKeyPersists(t *testing.T) {
 	if string(k1) != string(k2) || len(k1) != 32 {
 		t.Error("the key changed between loads")
 	}
-	if fi, err := os.Stat(filepath.Join(dir, webDirName, keyFileName)); err != nil || fi.Mode().Perm() != privateFilePerm {
+	if fi, err := os.Stat(filepath.Join(dir, webDirName, keyFileName)); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != privateFilePerm) {
 		t.Errorf("key file: %v %v", fi, err)
 	}
 }

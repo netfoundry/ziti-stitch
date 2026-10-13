@@ -28,6 +28,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -110,7 +111,7 @@ func TestNetworkAddDerivesNameAndRefusesDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != network.IdentityFilePerm {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != network.IdentityFilePerm {
 		t.Errorf("identity file mode = %v", fi.Mode().Perm())
 	}
 

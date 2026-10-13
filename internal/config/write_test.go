@@ -19,6 +19,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -103,7 +104,11 @@ func TestEnsureDirIsPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !fi.IsDir() || fi.Mode().Perm() != dirPerm {
+	if !fi.IsDir() {
+		t.Fatalf("networks is not a directory: %v", fi.Mode())
+	}
+	// Windows has no mode bits; secure_windows_test.go checks its ACL.
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != dirPerm {
 		t.Errorf("networks dir mode = %v", fi.Mode())
 	}
 	if err := EnsureDir(dir); err != nil {
