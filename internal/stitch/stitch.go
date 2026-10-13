@@ -31,6 +31,7 @@ import (
 	"github.com/openziti/sdk-golang/ziti/edge"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/network"
 	"github.com/netfoundry/ziti-stitch/internal/retry"
 )
 
@@ -137,7 +138,7 @@ func (s *Stitch) Run(ctx context.Context) {
 				s.log.Debug("refreshing the ingress service failed", "error", err)
 			}
 		}
-		l, err := zA.ListenWithOptions(s.cfg.From.Service, s.listenOptions())
+		l, err := network.Listen(ctx, zA, s.cfg.From.Service, s.listenOptions(), bindTimeout)
 		if err != nil {
 			s.track.problem(fmt.Errorf("cannot bind %s: %w", s.cfg.From.Service, err))
 			wait := b.Next()
@@ -183,7 +184,6 @@ func (s *Stitch) listenOptions() *ziti.ListenOptions {
 	opts.Precedence = ziti.GetPrecedenceForLabel(s.cfg.From.Precedence)
 	opts.Cost = s.cfg.From.Cost
 	opts.ConnectTimeout = bindTimeout
-	opts.WaitForNEstablishedListeners = 1
 	return opts
 }
 

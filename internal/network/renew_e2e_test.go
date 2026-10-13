@@ -75,11 +75,16 @@ func TestRenewInPlaceKeepsServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	listen := func() edge.Listener {
-		l, err := zHost.ListenWithOptions("renew", &ziti.ListenOptions{
-			ConnectTimeout: 10 * time.Second, MaxTerminators: 1, WaitForNEstablishedListeners: 1,
-		})
+		l, err := Listen(ctx, zHost, "renew", &ziti.ListenOptions{
+			ConnectTimeout: 10 * time.Second, MaxTerminators: 1,
+		}, 10*time.Second)
 		if err != nil {
 			t.Fatalf("listen: %v", err)
+		}
+		// Listen only waits for the router if the SDK's listener reports
+		// its established count; an SDK upgrade must not quietly stop that.
+		if _, ok := l.(establishedCounter); !ok {
+			t.Errorf("the SDK's listener (%T) no longer reports how many binds are established", l)
 		}
 		go func() {
 			for {

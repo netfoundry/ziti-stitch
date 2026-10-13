@@ -45,6 +45,7 @@ import (
 	"github.com/netfoundry/ziti-stitch/internal/config"
 	"github.com/netfoundry/ziti-stitch/internal/diagnose"
 	"github.com/netfoundry/ziti-stitch/internal/events"
+	"github.com/netfoundry/ziti-stitch/internal/network"
 	"github.com/netfoundry/ziti-stitch/internal/retry"
 	"github.com/netfoundry/ziti-stitch/internal/runner"
 )
@@ -226,8 +227,7 @@ func (s *Server) listenZiti(ctx context.Context) (net.Listener, error) {
 	}
 	opts := ziti.DefaultListenOptions()
 	opts.ConnectTimeout = zitiBindTimeout
-	opts.WaitForNEstablishedListeners = 1
-	return zctx.ListenWithOptions(z.Service, opts)
+	return network.Listen(ctx, zctx, z.Service, opts, zitiBindTimeout)
 }
 
 // Handler returns the UI's routes behind its checks.

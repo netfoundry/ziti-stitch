@@ -74,10 +74,9 @@ type echoHost struct {
 
 func startEchoHost(t *testing.T, z ziti.Context, service string) *echoHost {
 	t.Helper()
-	l, err := z.ListenWithOptions(service, &ziti.ListenOptions{
-		// Generous: binding can take a while on a busy CI runner.
-		ConnectTimeout: 30 * time.Second, MaxTerminators: 1, WaitForNEstablishedListeners: 1,
-	})
+	l, err := network.Listen(context.Background(), z, service, &ziti.ListenOptions{
+		ConnectTimeout: 10 * time.Second, MaxTerminators: 1,
+	}, 10*time.Second)
 	if err != nil {
 		t.Fatalf("echo host listen: %v", err)
 	}
