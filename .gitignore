@@ -1,0 +1,6 @@
+/ziti-stitch
+*.db
+*.db-*
+~$*
+/bin/
+/dist/
