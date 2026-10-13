@@ -110,6 +110,7 @@ up() {
   # second `up` then fails on names that already exist with no hint why.
   [[ -d "$RUN_DIR/a" || -d "$RUN_DIR/b" ]] && die "$RUN_DIR holds state from an earlier run. Run: $0 down"
   mkdir -p "$RUN_DIR/a" "$RUN_DIR/b"
+  "$ZITI" version >"$RUN_DIR/ziti-version" # the e2e tests skip what older versions lack
 
   start_network a "$A_CTRL_PORT" "$A_ROUTER_PORT"
   start_network b "$B_CTRL_PORT" "$B_ROUTER_PORT"

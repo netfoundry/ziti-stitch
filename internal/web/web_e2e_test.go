@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/e2etest"
 	"github.com/netfoundry/ziti-stitch/internal/events"
 	"github.com/netfoundry/ziti-stitch/internal/network"
 	"github.com/netfoundry/ziti-stitch/internal/runner"
@@ -46,10 +47,9 @@ import (
 // A, bound by stitch-a through the runner, and browses it as client-a,
 // dialing the service the way a tunneler would for a browser.
 func TestWebUIOverZiti(t *testing.T) {
-	harness := os.Getenv("ZITI_STITCH_E2E_DIR")
-	if harness == "" {
-		t.Skip("ZITI_STITCH_E2E_DIR not set; start ./deploy/local-e2e.sh up and run make e2e-test")
-	}
+	harness := e2etest.Dir(t)
+	// Every step tells identities apart, which routers only allow from 2.0.
+	e2etest.RequireCallerIdentity(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))

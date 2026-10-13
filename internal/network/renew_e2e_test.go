@@ -35,16 +35,9 @@ import (
 	"github.com/openziti/edge-api/rest_client_api_client/current_api_session"
 	"github.com/openziti/sdk-golang/ziti"
 	"github.com/openziti/sdk-golang/ziti/edge"
-)
 
-func e2eDir(t *testing.T) string {
-	t.Helper()
-	d := os.Getenv("ZITI_STITCH_E2E_DIR")
-	if d == "" {
-		t.Skip("ZITI_STITCH_E2E_DIR not set; start ./deploy/local-e2e.sh up and point it at .local-e2e")
-	}
-	return d
-}
+	"github.com/netfoundry/ziti-stitch/internal/e2etest"
+)
 
 func copyFile(t *testing.T, src, dst string) {
 	t.Helper()
@@ -63,7 +56,7 @@ func copyFile(t *testing.T, src, dst string) {
 // authentication and a fresh bind all keep working, the identity file on
 // disk holds the new credentials, and the old ones are dead.
 func TestRenewInPlaceKeepsServing(t *testing.T) {
-	dir := e2eDir(t)
+	dir := e2etest.Dir(t)
 	harnessFile := filepath.Join(dir, "b", "renew-b.json")
 	hostFile := filepath.Join(t.TempDir(), "partner.json")
 	oldFile := filepath.Join(t.TempDir(), "old.json")

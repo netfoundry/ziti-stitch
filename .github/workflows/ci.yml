@@ -2,20 +2,76 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
+    tags: ["v*"]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-test:
+  check:
+    name: lint and unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Check (gofmt + vet + staticcheck)
-        run: make check
-      - name: Test
-        run: make test
-      - name: Cross-compile every release target
-        run: make build-all
+      - run: make check
+      - run: go test -race ./...
+
+  build:
+    name: build every release target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make build-all
+
+  windows:
+    name: unit tests on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  e2e:
+    name: two networks, OpenZiti ${{ matrix.ziti }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The newest release, and the oldest supported line. Tests that
+        # need the caller's identity skip themselves before 2.0.
+        ziti: ["2.0.8", "1.6.21"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: start both networks
+        run: ./deploy/local-e2e.sh up
+        env:
+          ZITI_VERSION: ${{ matrix.ziti }}
+      - run: make e2e-test
+      - name: keep the network logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-logs-${{ matrix.ziti }}
+          path: .local-e2e/*.log
+          retention-days: 7
+      - name: stop both networks
+        if: always()
+        run: ./deploy/local-e2e.sh down

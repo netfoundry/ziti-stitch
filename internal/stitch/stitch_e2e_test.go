@@ -38,21 +38,13 @@ import (
 	"github.com/openziti/sdk-golang/ziti/edge"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/e2etest"
 	"github.com/netfoundry/ziti-stitch/internal/network"
 )
 
 // e2eService exists on both harness networks and is used by nothing else,
 // so no other process can be bound to it.
 const e2eService = "e2e"
-
-func e2eDir(t *testing.T) string {
-	t.Helper()
-	d := os.Getenv("ZITI_STITCH_E2E_DIR")
-	if d == "" {
-		t.Skip("ZITI_STITCH_E2E_DIR not set; start ./deploy/local-e2e.sh up and run make e2e-test")
-	}
-	return d
-}
 
 // startNetwork runs a network from a copy of a harness identity file, so
 // that nothing the network writes back touches the harness.
@@ -140,7 +132,7 @@ func roundTrip(z ziti.Context, service, appData, msg string) (string, error) {
 }
 
 func TestStitchEndToEnd(t *testing.T) {
-	dir := e2eDir(t)
+	dir := e2etest.Dir(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -185,12 +177,15 @@ func TestStitchEndToEnd(t *testing.T) {
 		t.Fatalf("round trip = %q, %v", got, err)
 	}
 
-	t.Run("passthrough reaches the host unchanged, from the stitch's identity", func(t *testing.T) {
-		gotAppData, dialer := host.last()
-		if gotAppData != appData {
+	t.Run("passthrough reaches the host unchanged", func(t *testing.T) {
+		if gotAppData, _ := host.last(); gotAppData != appData {
 			t.Errorf("host saw app data %q, want %q", gotAppData, appData)
 		}
-		if dialer != "stitch-b" {
+	})
+
+	t.Run("the host sees the stitch's identity", func(t *testing.T) {
+		e2etest.RequireCallerIdentity(t)
+		if _, dialer := host.last(); dialer != "stitch-b" {
 			t.Errorf("host saw dialer %q, want stitch-b", dialer)
 		}
 	})

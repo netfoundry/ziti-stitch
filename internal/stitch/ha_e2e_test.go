@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/e2etest"
 	"github.com/netfoundry/ziti-stitch/internal/network"
 )
 
@@ -75,7 +76,7 @@ func waitListening(t *testing.T, instances ...*instance) {
 // dials keep working when one instance stops, and when one instance
 // configured as the primary cannot reach the egress service.
 func TestTwoInstances(t *testing.T) {
-	dir := e2eDir(t)
+	dir := e2etest.Dir(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))

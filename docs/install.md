@@ -4,6 +4,21 @@ ziti-stitch is a single binary. Install it somewhere permanent, enroll an identi
 
 Before you start, get what you need from each network's admin: see [admin-checklist.md](admin-checklist.md).
 
+## Downloading
+
+Each release has an archive per platform and a `checksums.txt`. Check the archive against it before unpacking:
+
+```
+sha256sum -c checksums.txt --ignore-missing                          # Linux
+shasum -a 256 -c checksums.txt --ignore-missing                      # macOS
+(Get-FileHash ziti-stitch_<version>_windows_amd64.zip).Hash.ToLower()  # Windows: compare with checksums.txt
+```
+
+The binaries are not code-signed yet, so the first run may be blocked:
+
+- **macOS** refuses to open a binary downloaded with a browser ("cannot be opened because the developer cannot be verified"). Clear the download flag once: `xattr -d com.apple.quarantine ziti-stitch`. Files fetched with `curl` are not flagged.
+- **Windows** may show "Windows protected your PC" (SmartScreen) or refuse to run a downloaded file. Unblock it once from PowerShell: `Unblock-File .\ziti-stitch.exe`.
+
 ## Linux (systemd)
 
 ```
