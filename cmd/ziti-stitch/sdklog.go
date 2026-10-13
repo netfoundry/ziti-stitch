@@ -144,14 +144,24 @@ func (f *sdkFormatter) writeNote(out *bytes.Buffer, e *logrus.Entry, msg string)
 }
 
 // kindOf groups lines that differ only in numbers ("failed after 0ms" and
-// "failed after 2ms" are the same kind).
+// "failed after 125ms" are the same kind): each run of digits counts as one.
 func kindOf(e *logrus.Entry) string {
-	return e.Level.String() + " " + strings.Map(func(r rune) rune {
+	var b strings.Builder
+	b.WriteString(e.Level.String())
+	b.WriteByte(' ')
+	inNumber := false
+	for _, r := range e.Message {
 		if unicode.IsDigit(r) {
-			return '#'
+			if !inNumber {
+				b.WriteByte('#')
+			}
+			inNumber = true
+			continue
 		}
-		return r
-	}, e.Message)
+		inNumber = false
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // redact returns e, or a copy of it with credential fields masked. The

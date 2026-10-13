@@ -211,6 +211,11 @@ Logs: journalctl -u ziti-stitch on Linux; ` + macLogDir + `/ on macOS;
 			if err := config.EnsureDir(dir); err != nil {
 				return err
 			}
+			if userName != "" {
+				if err := checkOwnedBy(dir, userName); err != nil {
+					return err
+				}
+			}
 			if runtime.GOOS == "darwin" {
 				if err := os.MkdirAll(macLogDir, 0o750); err != nil {
 					return err

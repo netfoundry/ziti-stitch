@@ -49,11 +49,23 @@ resolve_ziti() {
   dir="$PWD/.cache/ziti/$ZITI_VERSION"
   if [[ ! -x "$dir/ziti" ]]; then
     log "downloading ziti $ZITI_VERSION ($os/$arch)"
+    local base="https://github.com/openziti/ziti/releases/download/v$ZITI_VERSION"
+    local tarball="ziti-$os-$arch-$ZITI_VERSION.tar.gz" tmp
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/$tarball" "$base/$tarball" || die "download failed"
+    curl -fsSL -o "$tmp/checksums" "$base/checksums.sha256.txt" || die "checksum download failed"
+    grep -q " $tarball\$" "$tmp/checksums" || die "no checksum for $tarball in the release"
+    (cd "$tmp" && grep " $tarball\$" checksums | sha256_check) || die "checksum mismatch for $tarball"
     mkdir -p "$dir"
-    curl -fsSL "https://github.com/openziti/ziti/releases/download/v$ZITI_VERSION/ziti-$os-$arch-$ZITI_VERSION.tar.gz" |
-      tar -xz -C "$dir" ziti || die "download failed"
+    tar -xzf "$tmp/$tarball" -C "$dir" ziti || die "unpacking $tarball failed"
+    rm -rf "$tmp"
   fi
   ZITI="$dir/ziti"
+}
+
+# sha256_check checks "<sum>  <file>" lines on stdin.
+sha256_check() {
+  if command -v sha256sum >/dev/null; then sha256sum -c --quiet -; else shasum -a 256 -c --quiet -; fi
 }
 
 # zcli runs the ziti CLI for network $1 (a or b) with a home directory of its
