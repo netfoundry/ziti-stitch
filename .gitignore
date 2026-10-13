@@ -4,3 +4,5 @@
 ~$*
 /bin/
 /dist/
+/.local-e2e/
+/.cache/
