@@ -3,9 +3,11 @@
 # quickstart networks (A and B), with the identities, services and policies
 # a stitch needs on each, enrolled into $RUN_DIR/{a,b}/*.json.
 #
-#   ./deploy/local-e2e.sh up      start both networks and configure them, leave running
-#   ./deploy/local-e2e.sh env     print the identity files and service names
-#   ./deploy/local-e2e.sh down    stop everything and remove the run directory
+#   ./deploy/local-e2e.sh up         start both networks and configure them, leave running
+#   ./deploy/local-e2e.sh env        print the identity files and service names
+#   ./deploy/local-e2e.sh tunnelers  after up: real ziti-edge-tunnels on both sides of a
+#                                    stitch (Linux, needs sudo for the client's TUN)
+#   ./deploy/local-e2e.sh down       stop everything and remove the run directory
 #
 # Needs: ziti 1.6.7+ (2.0+ for the caller-identity tests), jq, curl. ZITI_BIN=/path/to/ziti picks a binary;
 # ZITI_VERSION=2.0.8 downloads that release into .cache/ instead.
@@ -123,6 +125,7 @@ up() {
   [[ -d "$RUN_DIR/a" || -d "$RUN_DIR/b" ]] && die "$RUN_DIR holds state from an earlier run. Run: $0 down"
   mkdir -p "$RUN_DIR/a" "$RUN_DIR/b"
   "$ZITI" version >"$RUN_DIR/ziti-version" # the e2e tests skip what older versions lack
+  echo "$ZITI" >"$RUN_DIR/ziti-bin"        # for later commands
 
   start_network a "$A_CTRL_PORT" "$A_ROUTER_PORT"
   start_network b "$B_CTRL_PORT" "$B_ROUTER_PORT"
@@ -174,17 +177,121 @@ Logs: $RUN_DIR/*.log      Stop: $0 down
 EOF
 }
 
+# ziti-edge-tunnel for the tunnelers test. Its releases carry no checksums,
+# so the expected ones are pinned here.
+ZET_VERSION=1.18.7.2
+zet_sha256() {
+  case "$1" in
+    x86_64) echo 40840bf4739a8303b5cbeb63e84bc16017b0b98f2ce816bc5af629e3df56adb9 ;;
+    arm64) echo 2b8c377ec457d0a8e97fd9ad6881e79e0325ed16a2143bd58a3039b591b91dc8 ;;
+  esac
+}
+
+# resolve_zet sets ZET to a verified ziti-edge-tunnel, downloading it once.
+resolve_zet() {
+  local arch dir
+  case "$(uname -m)" in
+    x86_64 | amd64) arch=x86_64 ;;
+    arm64 | aarch64) arch=arm64 ;;
+    *) die "unsupported architecture $(uname -m)" ;;
+  esac
+  dir="$PWD/.cache/ziti-edge-tunnel/$ZET_VERSION"
+  if [[ ! -x "$dir/ziti-edge-tunnel" ]]; then
+    log "downloading ziti-edge-tunnel $ZET_VERSION ($arch)"
+    local tmp zip="ziti-edge-tunnel-Linux_$arch.zip"
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/$zip" "https://github.com/openziti/ziti-tunnel-sdk-c/releases/download/v$ZET_VERSION/$zip" ||
+      die "download failed"
+    (cd "$tmp" && echo "$(zet_sha256 "$arch")  $zip" | sha256_check) || die "checksum mismatch for $zip"
+    mkdir -p "$dir"
+    unzip -q -o "$tmp/$zip" ziti-edge-tunnel -d "$dir" || die "unpacking $zip failed"
+    chmod +x "$dir/ziti-edge-tunnel"
+    rm -rf "$tmp"
+  fi
+  ZET="$dir/ziti-edge-tunnel"
+}
+
+# tunnelers runs a client and a host ziti-edge-tunnel around a stitch:
+#   curl 192.0.2.10:7000 -> client tunneler (intercepts it on A) -> network A
+#   -> ziti-stitch -> network B -> hosting tunneler -> 127.0.0.1:7000
+# The hosting side forwards by the port in the client's app data
+# (forwardPort), so a request only arrives if the stitch passed the app data
+# on unchanged. It runs again with app_data annotate, to check that the C
+# SDK accepts the extra ziti_stitch key.
+tunnelers() {
+  [[ "$(uname -s)" == Linux ]] || die "the tunnelers test needs Linux, for ziti-edge-tunnel"
+  [[ -s "$RUN_DIR/ziti-bin" ]] || die "start the networks first: $0 up"
+  need go; need python3; need unzip
+  sudo -n true 2>/dev/null || die "the client tunneler needs passwordless sudo, for its TUN device"
+  ZITI="$(cat "$RUN_DIR/ziti-bin")"
+  resolve_zet
+  local ip=192.0.2.10 port=7000 marker="stitched by ziti-stitch $$"
+  local www="$RUN_DIR/www" cfg="$RUN_DIR/tunnel-stitch" zs="$RUN_DIR/ziti-stitch"
+
+  log "configuring the tunneled service on both networks"
+  zt a create config tunneled-intercept intercept.v1 \
+    "{\"protocols\":[\"tcp\"],\"addresses\":[\"$ip\"],\"portRanges\":[{\"low\":$port,\"high\":$port}]}" >/dev/null
+  zt a create service tunneled -a stitched --configs tunneled-intercept >/dev/null
+  zt b create config tunneled-host host.v1 \
+    "{\"protocol\":\"tcp\",\"address\":\"127.0.0.1\",\"forwardPort\":true,\"allowedPortRanges\":[{\"low\":$port,\"high\":$port}]}" >/dev/null
+  zt b create service tunneled -a echo --configs tunneled-host >/dev/null
+  create_identity a tunnel-client-a stitch-clients
+  create_identity b tunnel-host-b echo-hosts
+
+  log "starting a web server, the hosting tunneler and ziti-stitch"
+  mkdir -p "$www" && echo "$marker" >"$www/marker"
+  start_bg tunnel-www python3 -m http.server "$port" --bind 127.0.0.1 --directory "$www"
+  start_bg tunnel-host "$ZET" run-host -i "$RUN_DIR/b/tunnel-host-b.json"
+  go build -o "$zs" ./cmd/ziti-stitch
+  "$zs" --config-dir "$cfg" network add --identity "$RUN_DIR/a/stitch-a.json" --name a >/dev/null
+  "$zs" --config-dir "$cfg" network add --identity "$RUN_DIR/b/stitch-b.json" --name b >/dev/null
+  "$zs" --config-dir "$cfg" stitch add tunneled --from a:tunneled --to b:tunneled >/dev/null
+  start_bg tunnel-stitch "$zs" --config-dir "$cfg" run
+
+  log "starting the client tunneler"
+  # Root owns what it writes, so it gets its own copy of the identity.
+  mkdir -p "$RUN_DIR/tunnel-client" && cp "$RUN_DIR/a/tunnel-client-a.json" "$RUN_DIR/tunnel-client/"
+  start_bg tunnel-client sudo -n "$ZET" run -i "$RUN_DIR/tunnel-client/tunnel-client-a.json"
+
+  fetch_through_tunnelers "$ip" "$port" "$marker" || die "no answer through the tunnelers (passthrough); see $RUN_DIR/tunnel-*.log"
+  echo "passthrough: ok"
+
+  log "switching the stitch to app_data annotate"
+  "$zs" --config-dir "$cfg" stitch remove tunneled >/dev/null
+  "$zs" --config-dir "$cfg" stitch add tunneled --from a:tunneled --to b:tunneled --app-data annotate >/dev/null
+  sleep 5 # the running ziti-stitch picks the change up and rebinds
+  fetch_through_tunnelers "$ip" "$port" "$marker" || die "no answer through the tunnelers (annotate); see $RUN_DIR/tunnel-*.log"
+  echo "annotate: ok"
+  log "tunnelers test passed"
+}
+
+# fetch_through_tunnelers waits up to a minute for the marker to come back.
+fetch_through_tunnelers() {
+  local i body
+  for ((i = 0; i < 60; i++)); do
+    body="$(curl -sf --max-time 5 "http://$1:$2/marker" 2>/dev/null)" && [[ "$body" == "$3" ]] && return 0
+    sleep 1
+  done
+  return 1
+}
+
 down() {
-  local f
-  for f in "$RUN_DIR"/*.pid; do [[ -e "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
+  local f pid
+  for f in "$RUN_DIR"/*.pid; do
+    [[ -e "$f" ]] || continue
+    pid="$(cat "$f")"
+    # The client tunneler runs as root, under sudo.
+    kill "$pid" 2>/dev/null || sudo -n kill "$pid" 2>/dev/null || true
+  done
   sleep 1
-  rm -rf "$RUN_DIR"
+  rm -rf "$RUN_DIR" 2>/dev/null || sudo -n rm -rf "$RUN_DIR"
   echo "stopped; run directory removed"
 }
 
 case "${1:-}" in
   up) up ;;
   env) env_info ;;
+  tunnelers) tunnelers ;;
   down) down ;;
-  *) sed -n '2,13p' "$0"; exit 1 ;;
+  *) sed -n '2,15p' "$0"; exit 1 ;;
 esac

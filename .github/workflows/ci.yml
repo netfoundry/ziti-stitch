@@ -80,11 +80,37 @@ jobs:
         if: always()
         run: ./deploy/local-e2e.sh down
 
+  tunnelers:
+    name: real tunnelers on both sides
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: start both networks
+        run: ./deploy/local-e2e.sh up
+        env:
+          ZITI_VERSION: "2.0.8"
+      - name: client and host ziti-edge-tunnel through a stitch
+        run: ./deploy/local-e2e.sh tunnelers
+      - name: keep the logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tunnelers-logs
+          path: .local-e2e/*.log
+          retention-days: 7
+      - name: stop everything
+        if: always()
+        run: ./deploy/local-e2e.sh down
+
   release:
     name: release
     # Only for a version tag, and only once every other job has passed.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, build, windows, e2e]
+    needs: [check, build, windows, e2e, tunnelers]
     runs-on: ubuntu-24.04
     permissions:
       contents: write # create the GitHub release and upload its files
