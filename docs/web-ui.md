@@ -88,6 +88,7 @@ web:
 
 - `hosts` is required, and lists the intercept addresses. Add the port if it is not 80, e.g. `stitch-admin.ziti:8080`. Requests naming any other host are refused.
 - `allow` takes identity **ids**, not names. The router tells ziti-stitch the id of whoever dialed, verified from their session, so it cannot be forged; a name can be changed by an admin at any time.
+- `allow` needs the network to run OpenZiti 2.0 or later: older routers do not pass on who dialed, so nobody matches. On 1.6, use login links or `policy_access`.
 - `policy_access` is what everyone else the Dial policy admits gets. It defaults to `none`.
 
 Changes to `allow` and `policy_access` apply at once, to the very next request, revoking included. There is no session to wait out. Changing `network`, `service` or `hosts` needs a restart.
@@ -211,6 +212,7 @@ Changes made in one instance's UI stay on that instance. Keeping instances' conf
 | the link says it is invalid or expired | it was used already, or is over five minutes old; run `web login` again |
 | `421 unexpected Host header` | the address in the browser is not one the UI answers to: check `hosts`, or the local port of an SSH forward |
 | the sign-in page names your identity and says it has no access | add its id to `allow`, or set `policy_access`, or use a login link |
+| the sign-in page says the network did not say which identity you are | the network runs OpenZiti before 2.0; use `policy_access` or a login link |
 | the Ziti address does not resolve or connect | the user's identity cannot dial the service (the Dial policy), or the tunneler is not running |
 | log: `cannot listen for the web UI on loopback` | the port is in use by something else; pick another `listen` port and restart |
 | log: `cannot bind the web UI's Ziti service; retrying` | ziti-stitch's identity has no Bind policy for the service, or the service name is wrong; it retries on its own, up to every 30 seconds |

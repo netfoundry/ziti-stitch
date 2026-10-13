@@ -605,6 +605,23 @@ func TestZitiIdentityWithoutAccessIsShownWhy(t *testing.T) {
 	}
 }
 
+// Routers before OpenZiti 2.0 do not pass the dialer identity on.
+func TestZitiCallerWithoutIdentity(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("none", "AliceID")
+	e.via = &caller{}
+
+	b := body(e.get("/login"))
+	if !strings.Contains(b, "did not say which identity you are") || strings.Contains(b, "<code></code>") {
+		t.Errorf("login page for a caller with no identity:\n%s", b)
+	}
+
+	e.setZitiAccess("read", "AliceID")
+	if w := e.get("/stitches"); w.Code != http.StatusOK || !strings.Contains(body(w), "unidentified Ziti identity") {
+		t.Errorf("policy_access read for a caller with no identity: %d", w.Code)
+	}
+}
+
 func TestZitiPolicyReadIsReadOnly(t *testing.T) {
 	e := newEnv(t)
 	e.setZitiAccess("read")

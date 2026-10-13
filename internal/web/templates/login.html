@@ -4,8 +4,13 @@
   <h1>Sign in</h1>
   {{if .Err}}<div class="flash err">{{.Err}}</div>{{end}}
   {{with .Caller}}
+  {{if .ID}}
   <p>You reached this over Ziti as <strong>{{.Name}}</strong> (<code>{{.ID}}</code>), which has no access.</p>
   <p class="small">To let this identity in, add its id to <code>web.ziti.allow</code> in ziti-stitch's <code>config.yaml</code> for full access, or set <code>web.ziti.policy_access: read</code> to let anyone the service policy admits look around. Either applies at once.</p>
+  {{else}}
+  <p>You reached this over Ziti, but the network did not say which identity you are, so <code>web.ziti.allow</code> cannot let you in. Routers only pass that on from OpenZiti 2.0.</p>
+  <p class="small">Set <code>web.ziti.policy_access</code> in ziti-stitch's <code>config.yaml</code> to let in anyone the service policy admits; it applies at once.</p>
+  {{end}}
   <p class="small">Or use a one-time link:</p>
   {{else}}
   <p>Sign in with a one-time link. On the machine running ziti-stitch, as a user who can change its configuration, run:</p>

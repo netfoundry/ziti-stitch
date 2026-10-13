@@ -56,19 +56,26 @@ resolve_ziti() {
   ZITI="$dir/ziti"
 }
 
-# zt runs an edge command against network $1 (a or b).
-zt() { local net=$1; shift; "$ZITI" edge -i "stitch-e2e-$net" "$@"; }
+# zcli runs the ziti CLI for network $1 (a or b) with a home directory of its
+# own: the CLI keeps logins and trusted CAs there, older versions keyed by
+# host name alone, so two networks on localhost would overwrite each other's
+# CA. It also keeps the harness out of the user's own ~/.ziti.
+zcli() { local net=$1; shift; HOME="$RUN_DIR/$net/home" "$ZITI" "$@"; }
+
+# zt runs an edge command against network $1.
+zt() { local net=$1; shift; zcli "$net" edge -i "stitch-e2e-$net" "$@"; }
 
 # start_network starts a quickstart for network $1 and logs the CLI in.
 start_network() {
   local net=$1 ctrl=$2 router=$3 i
   log "starting network $net ($("$ZITI" version)) on $ctrl/$router"
-  start_bg "quickstart-$net" "$ZITI" edge quickstart --home "$RUN_DIR/$net/ziti" \
+  mkdir -p "$RUN_DIR/$net/home"
+  start_bg "quickstart-$net" env HOME="$RUN_DIR/$net/home" "$ZITI" edge quickstart --home "$RUN_DIR/$net/ziti" \
     --ctrl-address localhost --ctrl-port "$ctrl" --router-address localhost --router-port "$router" \
     -u admin -p admin
   wait_http "https://localhost:$ctrl/edge/client/v1/version" 60 || die "controller $net did not start; see $RUN_DIR/quickstart-$net.log"
   for ((i = 0; i < 30; i++)); do
-    "$ZITI" edge login "localhost:$ctrl" -u admin -p admin -y -i "stitch-e2e-$net" >/dev/null 2>&1 && break
+    zcli "$net" edge login "localhost:$ctrl" -u admin -p admin -y -i "stitch-e2e-$net" >/dev/null 2>&1 && break
     sleep 2
   done
   [[ $i -lt 30 ]] || die "could not log in to controller $net"
@@ -87,7 +94,7 @@ start_network() {
 create_identity() {
   local net=$1 name=$2 attr=$3
   zt "$net" create identity "$name" -a "$attr" -o "$RUN_DIR/$net/$name.jwt" >/dev/null
-  "$ZITI" edge enroll "$RUN_DIR/$net/$name.jwt" -o "$RUN_DIR/$net/$name.json" >/dev/null 2>&1 ||
+  zcli "$net" edge enroll "$RUN_DIR/$net/$name.jwt" -o "$RUN_DIR/$net/$name.json" >/dev/null 2>&1 ||
     die "enrolling $name on $net failed"
   rm -f "$RUN_DIR/$net/$name.jwt"
 }
@@ -138,8 +145,8 @@ env_info() {
   cat <<EOF
 
 Networks are running.
-  A: https://localhost:$A_CTRL_PORT  ($RUN_DIR/a)   CLI: ziti edge -i stitch-e2e-a ...
-  B: https://localhost:$B_CTRL_PORT  ($RUN_DIR/b)   CLI: ziti edge -i stitch-e2e-b ...
+  A: https://localhost:$A_CTRL_PORT   CLI: HOME=$RUN_DIR/a/home $ZITI edge -i stitch-e2e-a ...
+  B: https://localhost:$B_CTRL_PORT   CLI: HOME=$RUN_DIR/b/home $ZITI edge -i stitch-e2e-b ...
 
 Identities:
   $RUN_DIR/a/stitch-a.json   binds  A:echo

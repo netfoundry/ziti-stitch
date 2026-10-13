@@ -45,10 +45,14 @@ type caller struct {
 }
 
 func (c caller) String() string {
-	if c.Name == "" {
+	switch {
+	case c.ID == "":
+		return "unidentified Ziti identity" // routers before OpenZiti 2.0 do not say
+	case c.Name == "":
 		return c.ID
+	default:
+		return c.Name + " (" + c.ID + ")"
 	}
-	return c.Name + " (" + c.ID + ")"
 }
 
 type callerKey struct{}

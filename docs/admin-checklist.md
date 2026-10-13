@@ -4,6 +4,8 @@ ziti-stitch never needs admin rights on any network. Everything it needs is crea
 
 The examples use the `ziti` CLI and role attributes; the admin console works just as well. Names are examples.
 
+**Versions.** The controller and routers need OpenZiti 1.6.7 or later. On the ingress network, 2.0 or later also lets ziti-stitch see which identity is calling; on 1.6 everything else works the same.
+
 ## Ingress network (where the clients are)
 
 ziti-stitch hosts the service here, the way a tunneler or SDK app hosting a service would.

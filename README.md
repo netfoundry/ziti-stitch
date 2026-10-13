@@ -9,6 +9,12 @@ Status: early development. Enrolling, managing stitches, running, and running as
 - [Installing and running as a service](docs/install.md)
 - [What to ask your network admins for](docs/admin-checklist.md)
 
+## Requirements
+
+Every network's controller and routers must run OpenZiti **1.6.7 or later**. On the ingress networks (where the clients are), **2.0 or later** also tells ziti-stitch who is calling: the caller's identity in logs and on the connections page, in `annotate` app data, and for the web UI's `allow` list. On 1.6 stitches work the same, without the caller's identity.
+
+Earlier versions are not supported and are not expected to work reliably.
+
 ## Quick start
 
 Your network admins create the identities and policies. ziti-stitch needs no admin access: the identity on the ingress network needs Bind on the ingress service, and the one on the egress network needs Dial on the egress service.
