@@ -38,24 +38,34 @@ minutes. Run it as a user who can change the configuration (sudo, if it
 belongs to root): being able to sign in is the same as being able to edit
 the config directory.
 
-The UI is off until web.listen is set in config.yaml, e.g.:
+The UI is off until web.listen or web.ziti is set in config.yaml, e.g.:
 
   web:
-    listen: 127.0.0.1:8474`,
+    listen: 127.0.0.1:8474
+
+A link works on either listener. Over Ziti, allowed identities need no link.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			d, err := readDir(*configDir)
 			if err != nil {
 				return err
 			}
-			if d.Config.Web.Listen == "" {
-				return errors.New("the web UI is off: set web.listen in config.yaml (e.g. 127.0.0.1:8474) and restart ziti-stitch")
+			w := d.Config.Web
+			if w.Listen == "" && w.Ziti == nil {
+				return errors.New("the web UI is off: set web.listen (e.g. 127.0.0.1:8474) or web.ziti in config.yaml and restart ziti-stitch")
 			}
 			token, err := web.NewLoginToken(d.Path)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "http://%s/login?t=%s\nThe link works once, for five minutes.\n", d.Config.Web.Listen, token)
+			out := cmd.OutOrStdout()
+			if w.Listen != "" {
+				fmt.Fprintf(out, "http://%s/login?t=%s\n", w.Listen, token)
+			}
+			if w.Ziti != nil {
+				fmt.Fprintf(out, "http://%s/login?t=%s   (over Ziti)\n", w.Ziti.Hosts[0], token)
+			}
+			_, err = fmt.Fprintln(out, "The link works once, for five minutes.")
 			return err
 		},
 	})

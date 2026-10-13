@@ -52,6 +52,7 @@ code { overflow-wrap: anywhere; }
 .topbar .spacer { flex: 1; }
 .topbar-tools { display: flex; align-items: center; gap: 1rem; }
 .topbar-tools form { margin: 0; }
+.topbar .who { color: var(--text-secondary); font-size: 0.85rem; }
 
 /* The logo comes in two colourways, one per theme, at the same aspect
    ratio, so swapping them never moves the layout. */
@@ -140,6 +141,9 @@ input[type=text], input[type=number], select {
     background: var(--bg-white); border: 1px solid var(--border-card); border-radius: var(--radius); }
 input:focus, select:focus { outline: 2px solid var(--brand-primary); outline-offset: 0; border-color: var(--brand-primary); }
 fieldset { border: 1px solid var(--border-divider); border-radius: var(--radius); padding: 0.75rem 1rem; }
+/* A fieldset used only to disable a whole form at once. */
+fieldset.bare { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.bare > * { margin-bottom: 0.9rem; }
 legend { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); padding: 0 0.3rem; }
 /* Fields side by side; .grow takes what is left. */
 .row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.6rem; }

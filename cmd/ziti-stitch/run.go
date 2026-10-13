@@ -131,7 +131,7 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logge
 	r := runner.New(log)
 	r.Apply(d)
 	logRunning(log, d)
-	if d.Config.Web.Listen != "" {
+	if d.Config.Web.Listen != "" || d.Config.Web.Ziti != nil {
 		startWeb(ctx, d, r, rec, log)
 	}
 
@@ -173,16 +173,12 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logge
 // startWeb serves the web UI until ctx is done. A UI that cannot start is
 // logged and does not stop the stitches.
 func startWeb(ctx context.Context, d *config.Dir, r *runner.Runner, rec *events.Recorder, log *slog.Logger) {
-	srv, err := web.New(web.Options{ConfigDir: d.Path, Listen: d.Config.Web.Listen, Version: version, Runner: r, Events: rec, Log: log})
+	srv, err := web.New(web.Options{ConfigDir: d.Path, Web: d.Config.Web, Version: version, Runner: r, Events: rec, Log: log})
 	if err != nil {
 		log.Error("cannot start the web UI", "error", err)
 		return
 	}
-	go func() {
-		if err := srv.Serve(ctx); err != nil {
-			log.Error("web UI stopped", "error", err)
-		}
-	}()
+	go srv.Serve(ctx)
 }
 
 func logRunning(log *slog.Logger, d *config.Dir) {
@@ -214,8 +210,10 @@ func reloadConfig(cur *config.Dir, r *runner.Runner, log *slog.Logger, setLevel 
 	if d.Config.Log.Format != cur.Config.Log.Format {
 		log.Warn("log.format changes take effect after a restart", "format", cur.Config.Log.Format)
 	}
-	if d.Config.Web != cur.Config.Web {
-		log.Warn("web changes take effect after a restart", "listen", cur.Config.Web.Listen)
+	if !d.Config.Web.SameListeners(cur.Config.Web) {
+		// Who may use the UI (web.ziti.allow, policy_access) applies at
+		// once; only where it listens needs a restart.
+		log.Warn("changes to where the web UI listens take effect after a restart")
 	}
 	if c := r.Apply(d); c != (runner.Changes{}) {
 		log.Info("configuration applied", "started", c.Started, "restarted", c.Restarted, "stopped", c.Stopped)

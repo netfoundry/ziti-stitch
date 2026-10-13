@@ -136,18 +136,29 @@ func loadOrCreateKey(dir string) ([]byte, error) {
 	return key, nil
 }
 
+// How a session started.
+const (
+	viaLink = "link" // a login link: full access, wherever it is used
+	viaZiti = "ziti" // a Ziti identity: access decided per request, by the config
+)
+
 // session is what the session cookie carries, signed.
 type session struct {
 	Exp  int64  `json:"e"`
 	CSRF string `json:"c"` // must accompany every POST
+	Via  string `json:"v"`
+	// ID is the dialer identity a Ziti session belongs to. The session is
+	// only good on a connection from that identity.
+	ID string `json:"i,omitempty"`
 }
 
-func (s *Server) startSession(w http.ResponseWriter) {
-	sess := session{Exp: s.now().Add(sessionLifetime).Unix(), CSRF: randomToken()}
+func (s *Server) startSession(w http.ResponseWriter, via, id string) session {
+	sess := session{Exp: s.now().Add(sessionLifetime).Unix(), CSRF: randomToken(), Via: via, ID: id}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: s.seal(sess), Path: "/",
 		MaxAge: int(sessionLifetime / time.Second), HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
+	return sess
 }
 
 func endSession(w http.ResponseWriter) {
@@ -169,7 +180,7 @@ func (s *Server) sessionFrom(r *http.Request) (session, bool) {
 		return session{}, false
 	}
 	var sess session
-	if json.Unmarshal(raw, &sess) != nil || s.now().Unix() >= sess.Exp || sess.CSRF == "" {
+	if json.Unmarshal(raw, &sess) != nil || s.now().Unix() >= sess.Exp || sess.CSRF == "" || (sess.Via != viaLink && sess.Via != viaZiti) {
 		return session{}, false
 	}
 	return sess, true
@@ -190,6 +201,9 @@ func (s *Server) mac(payload string) string {
 // csrfOK reports whether a POST carries the session's CSRF token, as a form
 // field or (from htmx) a header.
 func csrfOK(r *http.Request, sess session) bool {
+	if sess.CSRF == "" {
+		return false // no session yet: nothing to match, and "" must not match ""
+	}
 	got := r.Header.Get("X-CSRF-Token")
 	if got == "" {
 		got = r.PostFormValue("csrf")

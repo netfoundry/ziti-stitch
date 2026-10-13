@@ -17,6 +17,7 @@
 package web
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -60,6 +61,8 @@ func (w testLogWriter) Write(p []byte) (int, error) {
 
 func (f fakeRunner) Snapshot() runner.Snapshot { return f.snap }
 
+func (f fakeRunner) Network(string) (runner.Network, bool) { return nil, false }
+
 // identityJSON is an enrolled-looking identity for controller.
 func identityJSON(t *testing.T, controller string) []byte {
 	t.Helper()
@@ -87,6 +90,8 @@ type testEnv struct {
 	events *events.Recorder
 	cookie *http.Cookie
 	csrf   string
+	// via, when set, makes requests arrive over Ziti from this identity.
+	via *caller
 }
 
 // newEnv returns a server for a config dir with networks acme and partner
@@ -118,7 +123,8 @@ func newEnv(t *testing.T) *testEnv {
 		Connections: []stitch.ConnStatus{{Stitch: "billing", DialerIdentityName: "client-a", ACircuit: "circA", BCircuit: "circB", Opened: time.Now().Add(-time.Minute), BytesToEgress: 2048, BytesToIngress: 10}},
 	}
 	rec := events.NewRecorder(100)
-	srv, err := New(Options{ConfigDir: dir, Listen: testListen, Version: "v-test", Runner: fakeRunner{snap}, Events: rec, Log: slog.New(slog.NewTextHandler(testLogWriter{t}, nil))})
+	srv, err := New(Options{ConfigDir: dir, Web: config.Web{Listen: testListen, Ziti: &config.WebZiti{Network: "acme", Service: "stitch-admin", Hosts: []string{"stitch-admin.ziti"}}},
+		Version: "v-test", Runner: fakeRunner{snap}, Events: rec, Log: slog.New(rec.Handler(slog.NewTextHandler(testLogWriter{t}, nil), slog.LevelInfo))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,12 +140,30 @@ func newEnv(t *testing.T) *testEnv {
 func (e *testEnv) do(req *http.Request) *httptest.ResponseRecorder {
 	if req.Host == "example.com" { // httptest's default
 		req.Host = testListen
+		if e.via != nil {
+			req.Host = "stitch-admin.ziti"
+		}
+	}
+	if e.via != nil {
+		// What withCaller does for a connection from a Ziti listener.
+		req = req.WithContext(context.WithValue(req.Context(), callerKey{}, *e.via))
 	}
 	if e.cookie != nil {
 		req.AddCookie(e.cookie)
 	}
 	w := httptest.NewRecorder()
 	e.h.ServeHTTP(w, req)
+	// Keep a session the server hands out, as a browser would.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == sessionCookie && c.MaxAge > 0 {
+			e.cookie = c
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.AddCookie(c)
+			if sess, ok := e.srv.sessionFrom(r); ok {
+				e.csrf = sess.CSRF
+			}
+		}
+	}
 	return w
 }
 
@@ -161,7 +185,7 @@ func (e *testEnv) post(path string, form url.Values) *httptest.ResponseRecorder 
 	return e.do(req)
 }
 
-// signIn redeems a login link and keeps the session.
+// signIn redeems a login link; do keeps the session it hands out.
 func (e *testEnv) signIn() {
 	e.t.Helper()
 	token, err := NewLoginToken(e.dir)
@@ -169,21 +193,21 @@ func (e *testEnv) signIn() {
 		e.t.Fatal(err)
 	}
 	w := e.get("/login?t=" + token)
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/" {
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/" || e.csrf == "" {
 		e.t.Fatalf("login: %d %s", w.Code, w.Body.String())
 	}
-	for _, c := range w.Result().Cookies() {
-		if c.Name == sessionCookie {
-			e.cookie = c
-		}
+}
+
+// setZitiAccess rewrites config.yaml's web.ziti allowlist and policy.
+func (e *testEnv) setZitiAccess(policy string, allow ...string) {
+	e.t.Helper()
+	cfg := "web:\n  listen: " + testListen + "\n  ziti:\n    network: acme\n    service: stitch-admin\n    hosts: [stitch-admin.ziti]\n    policy_access: " + policy + "\n"
+	if len(allow) > 0 {
+		cfg += "    allow: [" + strings.Join(allow, ", ") + "]\n"
 	}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(e.cookie)
-	sess, ok := e.srv.sessionFrom(req)
-	if !ok {
-		e.t.Fatal("no session after login")
+	if err := os.WriteFile(filepath.Join(e.dir, config.ConfigFileName), []byte(cfg), 0o600); err != nil {
+		e.t.Fatal(err)
 	}
-	e.csrf = sess.CSRF
 }
 
 func (e *testEnv) stitches() []config.Stitch {
@@ -529,5 +553,176 @@ func TestHumanHelpers(t *testing.T) {
 	}
 	if ago(time.Time{}) != "" || ago(time.Now()) != "just now" {
 		t.Error("ago")
+	}
+}
+
+var alice = &caller{ID: "AliceID", Name: "alice"}
+
+func TestZitiAllowlistedIdentityGetsFullAccess(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("none", "AliceID")
+	e.via = alice
+
+	w := e.get("/stitches")
+	if w.Code != http.StatusOK || e.csrf == "" {
+		t.Fatalf("GET: %d, session issued: %v", w.Code, e.csrf != "")
+	}
+	if b := body(w); !strings.Contains(b, "Add a stitch") || !strings.Contains(b, "alice (AliceID)") || strings.Contains(b, "Sign out") {
+		t.Error("an allowlisted identity should see the edit controls and who it is, and no sign-out")
+	}
+	if w := e.post("/stitches/billing/disable", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("POST: %d %s", w.Code, body(w))
+	}
+	if !e.stitches()[0].Disabled {
+		t.Error("the edit was not saved")
+	}
+	if ev := e.events.Events()[0]; ev.Message != "stitch disabled in the web UI" || ev.Attr("by") != "alice (AliceID)" {
+		t.Errorf("audit event = %q by %q", ev.Message, ev.Attr("by"))
+	}
+}
+
+func TestZitiIdentityWithoutAccessIsShownWhy(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("none", "SomeoneElse")
+	e.via = alice
+
+	if w := e.get("/"); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login" {
+		t.Errorf("GET /: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	b := body(e.get("/login"))
+	if !strings.Contains(b, "<strong>alice</strong> (<code>AliceID</code>)") || !strings.Contains(b, "web.ziti.allow") {
+		t.Errorf("login page does not say which identity was refused:\n%s", b)
+	}
+	if w := e.post("/stitches/billing/disable", url.Values{"csrf": {""}}); w.Code != http.StatusUnauthorized {
+		t.Errorf("POST: %d", w.Code)
+	}
+}
+
+func TestZitiPolicyReadIsReadOnly(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("read")
+	e.via = alice
+
+	w := e.get("/stitches")
+	b := body(w)
+	if w.Code != http.StatusOK || strings.Contains(b, "Add a stitch") || !strings.Contains(b, "read-only") {
+		t.Errorf("stitches page for read-only: %d, add form shown: %v", w.Code, strings.Contains(b, "Add a stitch"))
+	}
+	if b := body(e.get("/stitches/billing")); !strings.Contains(b, "<fieldset class=\"bare\" disabled>") || strings.Contains(b, ">Remove</button>") {
+		t.Error("the edit page should show the settings disabled, and no actions")
+	}
+	if w := e.post("/stitches/billing/disable", nil); w.Code != http.StatusForbidden {
+		t.Errorf("edit with read access: %d", w.Code)
+	}
+	if e.stitches()[0].Disabled {
+		t.Fatal("a read-only identity changed the config")
+	}
+	if w := e.post("/networks/acme/test", nil); w.Code != http.StatusOK {
+		t.Errorf("testing a network needs only read access: %d", w.Code)
+	}
+}
+
+func TestZitiPolicyEditTrustsThePolicy(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("edit")
+	e.via = alice
+	e.get("/")
+	if w := e.post("/stitches/billing/disable", nil); w.Code != http.StatusSeeOther {
+		t.Errorf("POST with policy_access edit: %d", w.Code)
+	}
+}
+
+func TestZitiAccessChangesApplyAtOnce(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("read")
+	e.via = alice
+	e.get("/")
+	if w := e.post("/stitches/billing/disable", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("before: %d", w.Code)
+	}
+	e.setZitiAccess("read", "AliceID")
+	if w := e.post("/stitches/billing/disable", nil); w.Code != http.StatusSeeOther {
+		t.Errorf("after allowlisting: %d", w.Code)
+	}
+	e.setZitiAccess("none")
+	if w := e.get("/"); w.Code != http.StatusSeeOther {
+		t.Errorf("after revoking, the session still works: %d", w.Code)
+	}
+}
+
+func TestZitiAccessSurvivesAnUnreadableConfig(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("none", "AliceID")
+	e.via = alice
+	if w := e.get("/"); w.Code != http.StatusOK {
+		t.Fatalf("%d", w.Code)
+	}
+	if err := os.WriteFile(filepath.Join(e.dir, config.ConfigFileName), []byte("web: [this is: not yaml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The connections page needs only the running state, not the config.
+	if w := e.get("/connections"); w.Code != http.StatusOK {
+		t.Errorf("a config that does not parse locked the allowlisted identity out: %d", w.Code)
+	}
+}
+
+func TestZitiSessionIsBoundToItsIdentity(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("none", "AliceID", "BobID")
+	e.via = alice
+	e.get("/")
+	aliceCSRF := e.csrf
+
+	// Bob's browser presenting Alice's cookie: a GET gets Bob his own
+	// session, and Alice's token does not work for him.
+	e.via = &caller{ID: "BobID", Name: "bob"}
+	if w := e.post("/stitches/billing/disable", url.Values{"csrf": {aliceCSRF}}); w.Code != http.StatusForbidden {
+		t.Errorf("Alice's session used by Bob: %d", w.Code)
+	}
+	e.get("/")
+	if e.csrf == aliceCSRF {
+		t.Error("Bob was not given his own session")
+	}
+}
+
+func TestZitiHostCheck(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("read")
+	e.via = alice
+	for host, want := range map[string]int{
+		"stitch-admin.ziti":    http.StatusOK,
+		"Stitch-Admin.Ziti:80": http.StatusOK,
+		"evil.example":         http.StatusMisdirectedRequest,
+		testListen:             http.StatusMisdirectedRequest, // the loopback address is not this listener's
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/connections", nil)
+		req.Host = host
+		if w := e.do(req); w.Code != want {
+			t.Errorf("Host %s over Ziti: %d, want %d", host, w.Code, want)
+		}
+	}
+}
+
+func TestLoginLinkWorksOverZiti(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("none")
+	e.via = alice
+	e.signIn()
+	if w := e.post("/stitches/billing/disable", nil); w.Code != http.StatusSeeOther {
+		t.Errorf("a login link's session over Ziti: %d", w.Code)
+	}
+}
+
+func TestPostWithoutSessionIsRefusedEvenWithEmptyToken(t *testing.T) {
+	e := newEnv(t)
+	e.setZitiAccess("none", "AliceID")
+	e.via = alice
+	// No GET first, so no session: an empty token must not match the
+	// empty token of the missing session.
+	if w := e.post("/stitches/billing/disable", url.Values{"csrf": {""}}); w.Code != http.StatusForbidden {
+		t.Errorf("%d", w.Code)
+	}
+	if e.stitches()[0].Disabled {
+		t.Fatal("changed without a CSRF token")
 	}
 }

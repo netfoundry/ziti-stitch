@@ -72,10 +72,48 @@ type Config struct {
 	Web Web `yaml:"web"`
 }
 
-// Web configures the web UI.
+// Web configures the web UI. Either listener, both or neither may be on.
 type Web struct {
 	// Listen is a loopback host:port to serve the UI on; empty turns it off.
-	Listen string `yaml:"listen,omitempty"`
+	Listen string   `yaml:"listen,omitempty"`
+	Ziti   *WebZiti `yaml:"ziti,omitempty"`
+}
+
+// WebZiti serves the UI as a Ziti service, bound by one of our networks'
+// identities.
+type WebZiti struct {
+	Network string `yaml:"network"`
+	Service string `yaml:"service"`
+	// Hosts are the names people reach the service by (its intercept
+	// addresses); requests naming any other host are refused, which is
+	// what stops DNS rebinding from turning a browser against the UI.
+	Hosts []string `yaml:"hosts"`
+	// Allow lists dialer identity ids with full access.
+	Allow []string `yaml:"allow,omitempty"`
+	// PolicyAccess is what any identity the service policy lets dial gets:
+	// none (the default), read or edit.
+	PolicyAccess string `yaml:"policy_access,omitempty"`
+}
+
+// Access levels for WebZiti.PolicyAccess.
+const (
+	AccessNone = "none"
+	AccessRead = "read"
+	AccessEdit = "edit"
+)
+
+// SameListeners reports whether w and o serve the UI the same way: the
+// same loopback address and the same Ziti service and hosts. Who may use
+// it (Allow, PolicyAccess) is not part of that; it applies without a
+// restart.
+func (w Web) SameListeners(o Web) bool {
+	if w.Listen != o.Listen || (w.Ziti == nil) != (o.Ziti == nil) {
+		return false
+	}
+	if w.Ziti == nil {
+		return true
+	}
+	return w.Ziti.Network == o.Ziti.Network && w.Ziti.Service == o.Ziti.Service && slices.Equal(w.Ziti.Hosts, o.Ziti.Hosts)
 }
 
 // Log configures ziti-stitch's own logging.
@@ -243,6 +281,9 @@ func (d *Dir) applyDefaults() {
 	if d.Config.Log.Format == "" {
 		d.Config.Log.Format = "text"
 	}
+	if z := d.Config.Web.Ziti; z != nil && z.PolicyAccess == "" {
+		z.PolicyAccess = AccessNone
+	}
 	for i, s := range d.Stitches {
 		d.Stitches[i] = s.WithDefaults()
 	}
@@ -280,6 +321,34 @@ func (d *Dir) Validate() error {
 	if l := d.Config.Web.Listen; l != "" {
 		if err := checkLoopback(l); err != nil {
 			add("%s: web.listen: %v", ConfigFileName, err)
+		}
+	}
+	if z := d.Config.Web.Ziti; z != nil {
+		if z.Network == "" {
+			add("%s: web.ziti.network is required", ConfigFileName)
+		} else if _, ok := d.Network(z.Network); !ok {
+			add("%s: web.ziti.network %q has no identity in %s/", ConfigFileName, z.Network, NetworksDirName)
+		}
+		if z.Service == "" {
+			add("%s: web.ziti.service is required", ConfigFileName)
+		}
+		if len(z.Hosts) == 0 {
+			add("%s: web.ziti.hosts is required: the name(s) people reach the service by, from its intercept config", ConfigFileName)
+		}
+		for _, h := range z.Hosts {
+			if h == "" || strings.ContainsAny(h, "/ ") {
+				add("%s: web.ziti.hosts: %q is not a host name", ConfigFileName, h)
+			}
+		}
+		for _, id := range z.Allow {
+			if id == "" {
+				add("%s: web.ziti.allow has an empty identity id", ConfigFileName)
+			}
+		}
+		switch z.PolicyAccess {
+		case AccessNone, AccessRead, AccessEdit:
+		default:
+			add("%s: web.ziti.policy_access %q is not one of none, read, edit", ConfigFileName, z.PolicyAccess)
 		}
 	}
 

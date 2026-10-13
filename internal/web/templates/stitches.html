@@ -26,9 +26,11 @@
   <p class="muted flush-top">No stitches yet.</p>
   {{end}}
 </div>
+{{if .Form.CanEdit}}
 <details class="card"{{if .Form.Err}} open{{end}}>
   <summary><h2 class="inline-heading">Add a stitch</h2></summary>
   {{template "stitch-form" .Form}}
 </details>
+{{end}}
 {{end}}
 {{end}}

@@ -99,25 +99,41 @@ func (s *Server) state() (*state, error) {
 	return st, nil
 }
 
+// loginData is what the sign-in page shows.
+type loginData struct {
+	Err    string
+	Caller *caller // the Ziti identity that has no access, over Ziti
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	v := &view{Title: "Sign in", Theme: themeFrom(r), Version: s.version}
+	var data loginData
+	if c, ok := callerFrom(r); ok {
+		data.Caller = &c
+	}
 	token := r.URL.Query().Get("t")
 	if token == "" {
-		if _, ok := s.sessionFrom(r); ok {
+		if s.authorize(w, r).access != accessNone {
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
+		v.Data = data
 		s.render(w, http.StatusOK, "login", "", v)
 		return
 	}
 	if !s.redeemLoginToken(token) {
-		v.Data = "That sign-in link is not valid: it may have been used already or expired."
+		data.Err = "That sign-in link is not valid: it may have been used already or expired."
+		v.Data = data
 		s.render(w, http.StatusUnauthorized, "login", "", v)
 		return
 	}
-	s.startSession(w)
-	s.log.Info("signed in to the web UI with a login link", "remote", r.RemoteAddr)
+	s.startSession(w, viaLink, "")
+	attrs := []any{"remote", r.RemoteAddr}
+	if data.Caller != nil {
+		attrs = append(attrs, "ziti_identity", data.Caller.String())
+	}
+	s.log.Info("signed in to the web UI with a login link", attrs...)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -190,6 +206,7 @@ type stitchForm struct {
 	Networks       []string
 	Err            string
 	CSRF           string // the form is rendered on its own, without the view
+	CanEdit        bool
 }
 
 func newStitchForm(d *config.Dir, s config.Stitch, isNew bool) stitchForm {
@@ -219,7 +236,7 @@ func (s *Server) handleStitches(w http.ResponseWriter, r *http.Request, v *view)
 }
 
 func (s *Server) renderStitches(w http.ResponseWriter, status int, v *view, st *state, f stitchForm) {
-	f.CSRF = v.CSRF
+	f.CSRF, f.CanEdit = v.CSRF, v.CanEdit
 	v.Title, v.Nav, v.Data = "Stitches", "stitches", stitchesData{state: st, Form: f}
 	s.render(w, status, "stitches", "", v)
 }
@@ -297,7 +314,7 @@ func (s *Server) handleStitchAdd(w http.ResponseWriter, r *http.Request, v *view
 		s.renderStitches(w, http.StatusUnprocessableEntity, v, st, form)
 		return
 	}
-	s.log.Info("stitch added in the web UI", "stitch", cfg.Name)
+	s.log.Info("stitch added in the web UI", "stitch", cfg.Name, "by", v.Who)
 	redirectDone(w, r, "added", cfg.Name)
 }
 
@@ -322,7 +339,7 @@ type editData struct {
 }
 
 func (s *Server) renderEdit(w http.ResponseWriter, status int, v *view, st *state, f stitchForm) {
-	f.CSRF = v.CSRF
+	f.CSRF, f.CanEdit = v.CSRF, v.CanEdit
 	data := editData{Form: f}
 	for _, row := range st.Stitches {
 		if row.Cfg.Name == f.Stitch.Name {
@@ -359,7 +376,7 @@ func (s *Server) handleStitchUpdate(w http.ResponseWriter, r *http.Request, v *v
 		s.renderEdit(w, http.StatusUnprocessableEntity, v, st, form)
 		return
 	}
-	s.log.Info("stitch changed in the web UI", "stitch", name)
+	s.log.Info("stitch changed in the web UI", "stitch", name, "by", v.Who)
 	redirectDone(w, r, "saved", name)
 }
 
@@ -400,7 +417,7 @@ func (s *Server) editAndRedirect(w http.ResponseWriter, r *http.Request, v *view
 		s.renderError(w, r, v, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	s.log.Info("stitch "+done+" in the web UI", "stitch", name)
+	s.log.Info("stitch "+done+" in the web UI", "stitch", name, "by", v.Who)
 	redirectDone(w, r, done, name)
 }
 

@@ -2,6 +2,7 @@
 {{with .Data}}
 <div class="page-head">
   <div class="page-head-text"><h1>Stitch {{.Form.Stitch.Name}}</h1><p><a href="/stitches">All stitches</a></p></div>
+  {{if .Form.CanEdit}}
   <div class="page-head-actions">
     {{if .Form.Stitch.Disabled}}
     <form method="post" action="/stitches/{{.Form.Stitch.Name}}/enable"><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn">Enable</button></form>
@@ -10,6 +11,7 @@
     {{end}}
     <form method="post" action="/stitches/{{.Form.Stitch.Name}}/remove" data-confirm="Remove stitch {{.Form.Stitch.Name}}? It stops accepting new connections; open ones finish."><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn danger">Remove</button></form>
   </div>
+  {{end}}
 </div>
 {{with .Status}}
 <div class="stats">

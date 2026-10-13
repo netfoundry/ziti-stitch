@@ -38,16 +38,22 @@ While `run` is up, changes made with the CLI (or by hand) are applied on their o
 
 ## Web UI
 
-Optional, and off until you turn it on in `config.yaml`:
+Optional, and off until you turn it on in `config.yaml`, on loopback, as a Ziti service, or both:
 
 ```yaml
 web:
-  listen: 127.0.0.1:8474   # loopback only
+  listen: 127.0.0.1:8474         # loopback only
+  ziti:
+    network: acme                # whose identity binds the service
+    service: stitch-admin
+    hosts: [stitch-admin.ziti]   # the address people reach it by (its intercept address)
+    allow: [<identity id>]       # full access
+    policy_access: none          # what anyone the service policy admits gets: none, read or edit
 ```
 
-Restart ziti-stitch, then run `ziti-stitch web login` (with `sudo` if the config belongs to root) and open the link it prints. It shows the stitches, networks, open connections and recent events, lets you add, edit, enable, disable and remove stitches, and tests what each network's identity can do. Enrolling stays in the CLI.
+It shows the stitches, networks, open connections and recent events, lets you add, edit, enable, disable and remove stitches, and tests what each network's identity can do. Enrolling stays in the CLI.
 
-There are no passwords: a link works once, for five minutes, and only someone who can write the config directory can make one.
+There are no passwords. On loopback, `ziti-stitch web login` (with `sudo` if the config belongs to root) prints a link that works once, for five minutes; only someone who can write the config directory can make one. Over Ziti, the router-verified identity of whoever dialed decides: identities in `allow` get full access, and `policy_access` says what everyone else the service policy admits gets. Changes to `allow` and `policy_access` apply at once; where the UI listens needs a restart. Login links work over Ziti too.
 
 ## Config directory
 

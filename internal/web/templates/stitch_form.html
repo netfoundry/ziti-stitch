@@ -5,6 +5,8 @@
 <p class="muted">There are no networks to stitch yet. Enroll them with <code>ziti-stitch enroll --jwt &lt;file&gt;</code>.</p>
 {{else}}
 <form method="post" class="stack"{{if not .IsNew}} action="/stitches/{{.Stitch.Name}}"{{else}} action="/stitches"{{end}}>
+  {{/* Read-only access sees the settings but cannot change them. */}}
+  <fieldset class="bare"{{if not .CanEdit}} disabled{{end}}>
   {{if .IsNew}}
   <div><label for="name">Name</label><input type="text" id="name" name="name" class="w-16" value="{{.Stitch.Name}}" required pattern="[a-z0-9][a-z0-9_-]{0,62}">
   <div class="hint">Lower case letters, digits, - and _.</div></div>
@@ -39,7 +41,8 @@
   <div class="hint">Close connections with no traffic for this long, e.g. <code>1h</code>. Empty for never.</div></div>
   <div><label class="check"><input type="checkbox" name="disabled"{{if .Stitch.Disabled}} checked{{end}}> Disabled</label></div>
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <div class="actions"><button class="btn primary">{{if .IsNew}}Add stitch{{else}}Save{{end}}</button>{{if not .IsNew}} <a class="btn" href="/stitches">Cancel</a>{{end}}</div>
+  {{if .CanEdit}}<div class="actions"><button class="btn primary">{{if .IsNew}}Add stitch{{else}}Save{{end}}</button>{{if not .IsNew}} <a class="btn" href="/stitches">Cancel</a>{{end}}</div>{{end}}
+  </fieldset>
 </form>
 {{end}}
 {{end}}

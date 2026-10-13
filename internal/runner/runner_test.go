@@ -336,3 +336,33 @@ func TestSnapshotIncludesDrainingConnections(t *testing.T) {
 		t.Errorf("draining = %d after it drained", d)
 	}
 }
+
+func TestWebNetworkRunsWithoutStitches(t *testing.T) {
+	h := newHarness()
+	d := dir(map[string]string{"a": "a.json", "b": "b.json", "w": "w.json"}, st("s1", "a", "b", 0))
+	d.Config.Web.Ziti = &config.WebZiti{Network: "w", Service: "admin", Hosts: []string{"h"}}
+	h.r.Apply(d)
+	h.rec.waitFor(t, "net start w@w.json")
+	if n, ok := h.r.Network("w"); !ok || n.Name() != "w" {
+		t.Fatalf("Network(w) = %v, %v", n, ok)
+	}
+
+	// Pinning a network a stitch also uses must not start it twice.
+	d.Config.Web.Ziti.Network = "a"
+	h.r.Apply(d)
+	h.rec.waitFor(t, "net stop w@w.json")
+	h.rec.settle()
+	if n := h.rec.count("net start a@a.json"); n != 1 {
+		t.Errorf("network a started %d times", n)
+	}
+
+	d.Config.Web.Ziti = nil
+	h.r.Apply(d)
+	h.rec.settle()
+	if h.rec.has("net stop a@a.json") {
+		t.Error("network a stopped although s1 still uses it")
+	}
+	if _, ok := h.r.Network("w"); ok {
+		t.Error("Network(w) after it stopped")
+	}
+}

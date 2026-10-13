@@ -343,3 +343,59 @@ func TestWebListenMustBeLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestWebZiti(t *testing.T) {
+	good := `
+web:
+  ziti:
+    network: acme
+    service: stitch-admin
+    hosts: [stitch-admin.ziti]
+    allow: [AbCd123]
+`
+	d, err := Load(writeDir(t, map[string]string{"networks/acme.json": "{}", ConfigFileName: good}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if z := d.Config.Web.Ziti; z.PolicyAccess != AccessNone || z.Allow[0] != "AbCd123" {
+		t.Errorf("web.ziti = %+v", z)
+	}
+
+	tests := map[string]string{
+		"web:\n  ziti:\n    service: s\n    hosts: [h]\n":                                            "web.ziti.network is required",
+		"web:\n  ziti:\n    network: nope\n    service: s\n    hosts: [h]\n":                         `web.ziti.network "nope" has no identity`,
+		"web:\n  ziti:\n    network: acme\n    hosts: [h]\n":                                         "web.ziti.service is required",
+		"web:\n  ziti:\n    network: acme\n    service: s\n":                                         "web.ziti.hosts is required",
+		"web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [\"a b\"]\n":                   "is not a host name",
+		"web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [h]\n    policy_access: all\n": `policy_access "all"`,
+	}
+	for cfg, want := range tests {
+		_, err := Load(writeDir(t, map[string]string{"networks/acme.json": "{}", ConfigFileName: cfg}))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", cfg, err, want)
+		}
+	}
+}
+
+func TestWebSameListeners(t *testing.T) {
+	z := func(allow ...string) *WebZiti {
+		return &WebZiti{Network: "acme", Service: "s", Hosts: []string{"h"}, Allow: allow, PolicyAccess: AccessNone}
+	}
+	base := Web{Listen: "127.0.0.1:1", Ziti: z()}
+	if !base.SameListeners(Web{Listen: "127.0.0.1:1", Ziti: z("someone")}) {
+		t.Error("an allowlist change should not need a restart")
+	}
+	for name, other := range map[string]Web{
+		"listen":  {Listen: "127.0.0.1:2", Ziti: z()},
+		"no ziti": {Listen: "127.0.0.1:1"},
+		"service": {Listen: "127.0.0.1:1", Ziti: &WebZiti{Network: "acme", Service: "t", Hosts: []string{"h"}}},
+		"hosts":   {Listen: "127.0.0.1:1", Ziti: &WebZiti{Network: "acme", Service: "s", Hosts: []string{"h", "i"}}},
+	} {
+		if base.SameListeners(other) {
+			t.Errorf("%s change not seen", name)
+		}
+	}
+	if !(Web{}).SameListeners(Web{}) {
+		t.Error("two empty configs differ")
+	}
+}

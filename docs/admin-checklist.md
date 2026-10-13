@@ -52,6 +52,21 @@ ziti-stitch is a client here, like any SDK app dialing a service.
 
 Whoever hosts the real service needs no changes. If it is a tunneler that forwards to the address the client intercepted (`forwardAddress` etc. in `host.v1`), it relies on the client's app data, which ziti-stitch passes through unchanged by default.
 
+## The web UI over Ziti
+
+Only if you want to reach ziti-stitch's web UI as a Ziti service. On the network named in `web.ziti.network`:
+
+1. **The service**, with an `intercept.v1` config giving the address people will use, e.g. `stitch-admin.ziti` on port 80:
+
+   ```
+   ziti edge create config stitch-admin-intercept intercept.v1 '{"protocols":["tcp"],"addresses":["stitch-admin.ziti"],"portRanges":[{"low":80,"high":80}]}'
+   ziti edge create service stitch-admin --configs stitch-admin-intercept -a stitch-admin
+   ```
+
+2. **A Bind service policy** for the ziti-stitch identities (the same ones that bind the stitched services will do).
+
+3. **A Dial service policy** for the people who should reach the UI. Who among them may change things is ziti-stitch's own setting (`web.ziti.allow`), not this policy, unless ziti-stitch is told to trust it.
+
 ## Things to avoid on either side
 
 - **MFA posture checks** on policies covering ziti-stitch identities. A service cannot type a TOTP code.

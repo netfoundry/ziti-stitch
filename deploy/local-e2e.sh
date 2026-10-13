@@ -109,6 +109,7 @@ up() {
   log "configuring network A: stitch-a binds echo, client-a dials it"
   zt a create service echo -a stitched >/dev/null
   zt a create service e2e -a stitched >/dev/null # for go test -tags e2e only
+  zt a create service stitch-admin -a stitched >/dev/null # the web UI over Ziti, ditto
   zt a create service-policy stitch-hosts-bind Bind --identity-roles '#stitch-hosts' --service-roles '#stitched' >/dev/null
   zt a create service-policy stitch-clients-dial Dial --identity-roles '#stitch-clients' --service-roles '#stitched' >/dev/null
   create_identity a stitch-a stitch-hosts

@@ -27,7 +27,8 @@
       <option value="dark"{{if eq .Theme "dark"}} selected{{end}}>Dark</option>
     </select>
     {{if .SignedIn}}
-    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn small">Sign out</button></form>
+    <span class="who">{{.Who}}{{if not .CanEdit}} <span class="pill off">read-only</span>{{end}}</span>
+    {{if .CanSignOut}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn small">Sign out</button></form>{{end}}
     {{end}}
   </div>
   {{if .SignedIn}}

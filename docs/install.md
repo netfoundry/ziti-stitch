@@ -79,7 +79,26 @@ Then, on the same machine:
 sudo ziti-stitch web login      # add --config-dir if the service uses one
 ```
 
-Open the link it prints; it works once, for five minutes. The UI only listens on loopback. To reach it from another machine, forward the port over SSH (`ssh -L 8474:127.0.0.1:8474 host`).
+Open the link it prints; it works once, for five minutes. The loopback listener only answers on this machine; for other machines, serve the UI over Ziti, or forward the port over SSH (`ssh -L 8474:127.0.0.1:8474 host`).
+
+### Over Ziti
+
+ziti-stitch can bind the UI as a Ziti service through one of its networks' identities, so that people reach it from their own tunneler like any other service. Ask that network's admin for the service and its policies (see [admin-checklist.md](admin-checklist.md#the-web-ui-over-ziti)), then:
+
+```yaml
+web:
+  ziti:
+    network: acme
+    service: stitch-admin
+    hosts: [stitch-admin.ziti]     # the intercept address people will use
+    allow: [Xy7rT2kQp]             # identity ids with full access
+    policy_access: read            # everyone else the service policy admits may look
+```
+
+- `allow` takes identity **ids**, not names: the router vouches for the id of whoever dialed, and an admin could rename an identity. Someone without access who opens the UI sees their identity's id on the sign-in page, ready to copy.
+- `policy_access` is `none` by default. `read` lets anyone the service policy admits see everything and test networks, but not change stitches. `edit` hands full control to whoever that network's admin lets dial the service; only use it when that admin is you.
+- Changing `allow` or `policy_access` takes effect at once, revoking included. Changing the network, service or hosts needs a restart.
+- Requests naming a host other than `hosts` are refused. That is what stops a malicious web page from using a visitor's tunneler to reach the UI.
 
 ## Upgrading
 

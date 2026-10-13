@@ -279,6 +279,9 @@ func newNetworkRemoveCmd(configDir *string) *cobra.Command {
 			if users := d.StitchesUsing(name); len(users) > 0 {
 				return fmt.Errorf("network %q is used by stitches %s; remove those first", name, strings.Join(users, ", "))
 			}
+			if err := checkNotWebNetwork(d, name); err != nil {
+				return err
+			}
 			if err := os.Remove(n.IdentityFile); err != nil {
 				return err
 			}
@@ -311,6 +314,9 @@ func newNetworkRenameCmd(configDir *string) *cobra.Command {
 			}
 			if _, taken := d.Network(to); taken {
 				return fmt.Errorf("network %q already exists", to)
+			}
+			if err := checkNotWebNetwork(d, from); err != nil {
+				return err
 			}
 			if _, err := os.Stat(old.IdentityFile + network.PendingSuffix); err == nil {
 				return fmt.Errorf("network %q is in the middle of a certificate renewal; try again once ziti-stitch has finished it", from)
@@ -390,6 +396,16 @@ Problems name the policy the network admin needs to add.`,
 			return problemsErr(printFindings(out, findings))
 		},
 	}
+}
+
+// checkNotWebNetwork refuses to touch the network the web UI binds
+// through. config.yaml is the user's file, with their comments, so the CLI
+// does not rewrite it to follow along.
+func checkNotWebNetwork(d *config.Dir, name string) error {
+	if z := d.Config.Web.Ziti; z != nil && z.Network == name {
+		return fmt.Errorf("the web UI is served over network %q (web.ziti.network in %s); change that first", name, config.ConfigFileName)
+	}
+	return nil
 }
 
 func yesNo(b bool) string {

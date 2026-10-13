@@ -113,7 +113,9 @@ type Changes struct {
 
 // Apply makes the running stitches match the enabled stitches in d, which
 // must be valid. Stitches whose configuration and networks are unchanged
-// are not touched.
+// are not touched. The network the web UI binds through (web.ziti) runs
+// too, used by a stitch or not: one Ziti context per identity, never two
+// renewing the same certificate.
 func (r *Runner) Apply(d *config.Dir) Changes {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -170,12 +172,27 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 		}
 	}
 
+	if z := d.Config.Web.Ziti; z != nil {
+		r.network(z.Network, paths[z.Network]).wanted = true
+	}
+
 	for _, n := range r.networks {
 		if !n.wanted && n.users == 0 {
 			r.stopNetwork(n)
 		}
 	}
 	return c
+}
+
+// Network returns the running network called name.
+func (r *Runner) Network(name string) (Network, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n, ok := r.networks[name]
+	if !ok {
+		return nil, false
+	}
+	return n.nw, true
 }
 
 // Snapshot is the running state, for display.

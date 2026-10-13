@@ -261,3 +261,31 @@ func TestReadToken(t *testing.T) {
 		t.Error("an empty token was accepted")
 	}
 }
+
+func TestWebNetworkCannotBeRemovedOrRenamed(t *testing.T) {
+	dir := twoNetworkDir(t)
+	cfg := "web:\n  ziti:\n    network: acme\n    service: stitch-admin\n    hosts: [stitch-admin.ziti]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"network", "remove", "acme"}, {"network", "rename", "acme", "corp"}} {
+		if _, _, err := cli(t, dir, args...); err == nil || !strings.Contains(err.Error(), "web.ziti.network") {
+			t.Errorf("%v: err = %v", args, err)
+		}
+	}
+}
+
+func TestWebLoginPrintsALinkPerListener(t *testing.T) {
+	dir := twoNetworkDir(t)
+	if _, _, err := cli(t, dir, "web", "login"); err == nil || !strings.Contains(err.Error(), "web UI is off") {
+		t.Errorf("with the UI off: err = %v", err)
+	}
+	cfg := "web:\n  listen: 127.0.0.1:8474\n  ziti:\n    network: acme\n    service: stitch-admin\n    hosts: [stitch-admin.ziti]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := mustCLI(t, dir, "web", "login")
+	if !strings.Contains(out, "http://127.0.0.1:8474/login?t=") || !strings.Contains(out, "http://stitch-admin.ziti/login?t=") {
+		t.Errorf("output:\n%s", out)
+	}
+}
