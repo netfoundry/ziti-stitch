@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	apis "github.com/openziti/sdk-golang/edge-apis"
 	"github.com/openziti/sdk-golang/ziti"
 
 	"github.com/netfoundry/ziti-stitch/internal/atomicfile"
@@ -150,6 +151,8 @@ func (n *Network) Run(ctx context.Context) {
 		n.log.Warn("Ziti context cannot report controller list changes; they will not be saved to the identity file")
 	}
 
+	defer n.followAuthentication(zctx.Events())()
+
 	var identityName string
 	if id, err := zctx.GetCurrentIdentity(); err == nil && id.Name != nil {
 		identityName = *id.Name
@@ -159,6 +162,22 @@ func (n *Network) Run(ctx context.Context) {
 	n.zctx = zctx
 	close(n.ready)
 	n.keepRenewed(ctx, zctx)
+}
+
+// followAuthentication keeps Status.Ready in step with the API session:
+// the SDK drops the session when the controller rejects it or logging in
+// again fails, and reports a new one. A controller that is only
+// unreachable leaves the session, and dials through the routers work. It
+// returns a function that stops following.
+func (n *Network) followAuthentication(ev ziti.Eventer) func() {
+	removeLost := ev.AddAuthenticationStateUnauthenticatedListener(func(ziti.Context, apis.ApiSession) {
+		n.updateStatus(func(s *Status) { s.Ready = false })
+		n.log.Warn("lost the API session; logging in again")
+	})
+	removeBack := ev.AddAuthenticationStateFullListener(func(ziti.Context, apis.ApiSession) {
+		n.updateStatus(func(s *Status) { s.Ready = true })
+	})
+	return func() { removeLost(); removeBack() }
 }
 
 // controllerURLsNotifier is implemented by the SDK's context but is not
@@ -262,22 +281,33 @@ func (n *Network) saveControllerURLs(seq uint64, urls []*url.URL) {
 	if seq != n.urlsSeq.Load() {
 		return // a newer list arrived while this one waited
 	}
-	raw, err := os.ReadFile(n.path)
+	saved, err := setControllerURLsIn(n.path, list)
 	if err != nil {
 		n.log.Error("cannot save controller list", "error", err)
 		return
+	}
+	// A renewal waiting to be settled replaces the identity file with the
+	// pending one, so that needs the new list too.
+	if _, err := os.Stat(n.pendingPath()); err == nil {
+		if _, err := setControllerURLsIn(n.pendingPath(), list); err != nil {
+			n.log.Error("cannot save controller list in the pending renewal", "error", err)
+		}
+	}
+	if saved {
+		n.log.Info("saved new controller list", "controllers", list)
+	}
+}
+
+// setControllerURLsIn rewrites the identity file at path with list, and
+// reports whether it changed.
+func setControllerURLsIn(path string, list []string) (bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
 	}
 	out, changed, err := setControllerURLs(raw, list)
-	if err != nil {
-		n.log.Error("cannot save controller list", "error", err)
-		return
+	if err != nil || !changed {
+		return false, err
 	}
-	if !changed {
-		return
-	}
-	if err := atomicfile.WriteFile(n.path, out, IdentityFilePerm); err != nil {
-		n.log.Error("cannot save controller list", "error", err)
-		return
-	}
-	n.log.Info("saved new controller list", "controllers", list)
+	return true, atomicfile.WriteFile(path, out, IdentityFilePerm)
 }

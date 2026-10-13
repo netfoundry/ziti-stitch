@@ -29,6 +29,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	apis "github.com/openziti/sdk-golang/edge-apis"
+	"github.com/openziti/sdk-golang/ziti"
 )
 
 const sampleIdentity = `{
@@ -208,6 +211,26 @@ func TestSaveControllerURLs(t *testing.T) {
 	}
 }
 
+// A renewal waiting to be settled will replace the identity file with the
+// pending one, so a new controller list must reach both.
+func TestSaveControllerURLsUpdatesAPendingRenewal(t *testing.T) {
+	n := testNetwork(t)
+	raw, err := os.ReadFile(n.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(n.pendingPath(), raw, IdentityFilePerm); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse("https://moved:1280/edge/client/v1")
+	n.saveControllerURLs(n.urlsSeq.Add(1), []*url.URL{u})
+	for _, p := range []string{n.path, n.pendingPath()} {
+		if b, _ := os.ReadFile(p); !strings.Contains(string(b), "https://moved:1280") {
+			t.Errorf("%s lacks the new controller list", filepath.Base(p))
+		}
+	}
+}
+
 func TestSaveControllerURLsSkipsStaleUpdate(t *testing.T) {
 	n := testNetwork(t)
 	stale := n.urlsSeq.Add(1)
@@ -227,6 +250,42 @@ func TestContextWaitsForReady(t *testing.T) {
 	defer cancel()
 	if _, err := n.Context(ctx); err == nil {
 		t.Fatal("Context returned before the network was ready")
+	}
+}
+
+// authEvents delivers the SDK's authentication events on demand.
+type authEvents struct {
+	ziti.Eventer
+	lost, back func(ziti.Context, apis.ApiSession)
+}
+
+func (e *authEvents) AddAuthenticationStateUnauthenticatedListener(f func(ziti.Context, apis.ApiSession)) func() {
+	e.lost = f
+	return func() { e.lost = nil }
+}
+
+func (e *authEvents) AddAuthenticationStateFullListener(f func(ziti.Context, apis.ApiSession)) func() {
+	e.back = f
+	return func() { e.back = nil }
+}
+
+func TestReadyFollowsTheAPISession(t *testing.T) {
+	n := testNetwork(t)
+	n.updateStatus(func(s *Status) { s.Ready = true })
+	ev := &authEvents{}
+	stop := n.followAuthentication(ev)
+
+	ev.lost(nil, nil)
+	if n.Status().Ready {
+		t.Error("still ready after losing the API session")
+	}
+	ev.back(nil, nil)
+	if !n.Status().Ready {
+		t.Error("not ready after getting a new API session")
+	}
+	stop()
+	if ev.lost != nil || ev.back != nil {
+		t.Error("still following after stop")
 	}
 }
 
