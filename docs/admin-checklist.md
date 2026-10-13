@@ -14,7 +14,7 @@ ziti-stitch hosts the service here, the way a tunneler or SDK app hosting a serv
    ziti edge create identity stitch-1 -a stitch-hosts -o stitch-1.jwt
    ```
 
-   Run two or more instances for high availability; give each its own identity with the same attribute.
+   Run two or more instances for high availability; give each its own identity with the same attribute (see [high-availability.md](high-availability.md)).
 
 2. **The service** the clients will dial, if it does not exist yet. ziti-stitch needs no configs on it. Clients that intercept traffic (tunnelers) need their usual `intercept.v1` config; do not add a `host.v1` config for ziti-stitch's sake.
 
@@ -54,18 +54,7 @@ Whoever hosts the real service needs no changes. If it is a tunneler that forwar
 
 ## The web UI over Ziti
 
-Only if you want to reach ziti-stitch's web UI as a Ziti service. On the network named in `web.ziti.network`:
-
-1. **The service**, with an `intercept.v1` config giving the address people will use, e.g. `stitch-admin.ziti` on port 80:
-
-   ```
-   ziti edge create config stitch-admin-intercept intercept.v1 '{"protocols":["tcp"],"addresses":["stitch-admin.ziti"],"portRanges":[{"low":80,"high":80}]}'
-   ziti edge create service stitch-admin --configs stitch-admin-intercept -a stitch-admin
-   ```
-
-2. **A Bind service policy** for the ziti-stitch identities (the same ones that bind the stitched services will do).
-
-3. **A Dial service policy** for the people who should reach the UI. Who among them may change things is ziti-stitch's own setting (`web.ziti.allow`), not this policy, unless ziti-stitch is told to trust it.
+Only if ziti-stitch's web UI is to be reached as a Ziti service. On the network named in `web.ziti.network`: a service with an `intercept.v1` config for the address people will use, a Bind policy for the ziti-stitch identities, and a Dial policy for the people who should reach it. The commands, and what the Dial policy does and does not grant, are in [web-ui.md](web-ui.md#what-the-network-admin-creates).
 
 ## Things to avoid on either side
 

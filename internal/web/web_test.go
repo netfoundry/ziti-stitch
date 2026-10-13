@@ -123,7 +123,7 @@ func newEnv(t *testing.T) *testEnv {
 		Connections: []stitch.ConnStatus{{Stitch: "billing", DialerIdentityName: "client-a", ACircuit: "circA", BCircuit: "circB", Opened: time.Now().Add(-time.Minute), BytesToEgress: 2048, BytesToIngress: 10}},
 	}
 	rec := events.NewRecorder(100)
-	srv, err := New(Options{ConfigDir: dir, Web: config.Web{Listen: testListen, Ziti: &config.WebZiti{Network: "acme", Service: "stitch-admin", Hosts: []string{"stitch-admin.ziti"}}},
+	srv, err := New(Options{ConfigDir: dir, Web: config.Web{Listen: testListen, Ziti: &config.WebZiti{Network: "acme", Service: "stitch-admin", Hosts: []string{"stitch-admin.ziti", "alt.ziti:8080"}}},
 		Version: "v-test", Runner: fakeRunner{snap}, Events: rec, Log: slog.New(rec.Handler(slog.NewTextHandler(testLogWriter{t}, nil), slog.LevelInfo))})
 	if err != nil {
 		t.Fatal(err)
@@ -495,6 +495,12 @@ func TestDocs(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(body(w), `href="/docs/admin-checklist"`) {
 		t.Errorf("install guide: %d (links between guides should be rewritten)", w.Code)
 	}
+	if b := body(e.get("/docs/admin-checklist")); !strings.Contains(b, `href="/docs/web-ui#what-the-network-admin-creates"`) {
+		t.Error("a link to a heading in another guide should keep its fragment")
+	}
+	if b := body(e.get("/docs/web-ui")); !strings.Contains(b, "<table>") {
+		t.Error("tables in the guides should render as tables")
+	}
 	if w := e.get("/docs/nope"); w.Code != http.StatusNotFound {
 		t.Errorf("missing guide: %d", w.Code)
 	}
@@ -692,6 +698,7 @@ func TestZitiHostCheck(t *testing.T) {
 	for host, want := range map[string]int{
 		"stitch-admin.ziti":    http.StatusOK,
 		"Stitch-Admin.Ziti:80": http.StatusOK,
+		"alt.ziti:8080":        http.StatusOK, // a hosts entry with the intercept's port
 		"evil.example":         http.StatusMisdirectedRequest,
 		testListen:             http.StatusMisdirectedRequest, // the loopback address is not this listener's
 	} {

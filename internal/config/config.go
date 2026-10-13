@@ -85,8 +85,9 @@ type WebZiti struct {
 	Network string `yaml:"network"`
 	Service string `yaml:"service"`
 	// Hosts are the names people reach the service by (its intercept
-	// addresses); requests naming any other host are refused, which is
-	// what stops DNS rebinding from turning a browser against the UI.
+	// addresses), each with the intercept port if it is not 80; requests
+	// naming any other host are refused, which is what stops DNS
+	// rebinding from turning a browser against the UI.
 	Hosts []string `yaml:"hosts"`
 	// Allow lists dialer identity ids with full access.
 	Allow []string `yaml:"allow,omitempty"`
@@ -336,8 +337,8 @@ func (d *Dir) Validate() error {
 			add("%s: web.ziti.hosts is required: the name(s) people reach the service by, from its intercept config", ConfigFileName)
 		}
 		for _, h := range z.Hosts {
-			if h == "" || strings.ContainsAny(h, "/ ") {
-				add("%s: web.ziti.hosts: %q is not a host name", ConfigFileName, h)
+			if err := checkWebHost(h); err != nil {
+				add("%s: web.ziti.hosts: %v", ConfigFileName, err)
 			}
 		}
 		for _, id := range z.Allow {
@@ -459,6 +460,33 @@ func (d *Dir) findCycles() []error {
 		}
 	}
 	return errs
+}
+
+// HostName is the host part of a web.ziti.hosts entry, which may carry a
+// port.
+func HostName(h string) string {
+	if name, _, err := net.SplitHostPort(h); err == nil {
+		return name
+	}
+	return h
+}
+
+// checkWebHost accepts a host name, optionally with a port.
+func checkWebHost(h string) error {
+	name, port, err := net.SplitHostPort(h)
+	hasPort := err == nil
+	if !hasPort {
+		name = h
+	}
+	if name == "" || strings.ContainsAny(name, "/ :[]") {
+		return fmt.Errorf("%q is not a host name, or host:port", h)
+	}
+	if hasPort {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("%q: the port must be a number from 1 to 65535", h)
+		}
+	}
+	return nil
 }
 
 // checkLoopback accepts host:port where the host is a loopback address.

@@ -71,7 +71,7 @@ func startNetwork(ctx context.Context, t *testing.T, name, harnessFile string, l
 	return n
 }
 
-// echoHost binds the e2e service on network B and echoes every connection,
+// echoHost binds a service on network B and echoes every connection,
 // recording what each dial carried.
 type echoHost struct {
 	l  edge.Listener
@@ -80,9 +80,9 @@ type echoHost struct {
 	seen []struct{ appData, dialer string }
 }
 
-func startEchoHost(t *testing.T, z ziti.Context) *echoHost {
+func startEchoHost(t *testing.T, z ziti.Context, service string) *echoHost {
 	t.Helper()
-	l, err := z.ListenWithOptions(e2eService, &ziti.ListenOptions{
+	l, err := z.ListenWithOptions(service, &ziti.ListenOptions{
 		ConnectTimeout: 10 * time.Second, MaxTerminators: 1, WaitForNEstablishedListeners: 1,
 	})
 	if err != nil {
@@ -118,10 +118,10 @@ func (h *echoHost) last() (appData, dialer string) {
 	return s.appData, s.dialer
 }
 
-// roundTrip dials the e2e service on network A with appData, sends msg,
+// roundTrip dials service on network A with appData, sends msg,
 // half-closes, and returns what came back.
-func roundTrip(z ziti.Context, appData, msg string) (string, error) {
-	c, err := z.DialWithOptions(e2eService, &ziti.DialOptions{ConnectTimeout: 10 * time.Second, AppData: []byte(appData)})
+func roundTrip(z ziti.Context, service, appData, msg string) (string, error) {
+	c, err := z.DialWithOptions(service, &ziti.DialOptions{ConnectTimeout: 10 * time.Second, AppData: []byte(appData)})
 	if err != nil {
 		return "", err
 	}
@@ -164,7 +164,7 @@ func TestStitchEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := startEchoHost(t, zHost)
+	host := startEchoHost(t, zHost, e2eService)
 	clientNet := startNetwork(ctx, t, "client", filepath.Join(dir, "a", "client-a.json"), log)
 	zClient, err := clientNet.Context(ctx)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestStitchEndToEnd(t *testing.T) {
 	var got string
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		got, err = roundTrip(zClient, appData, "hello through the stitch")
+		got, err = roundTrip(zClient, e2eService, appData, "hello through the stitch")
 		if err == nil || time.Now().After(deadline) {
 			break
 		}
@@ -198,7 +198,7 @@ func TestStitchEndToEnd(t *testing.T) {
 	t.Run("egress down gives the client only the generic error", func(t *testing.T) {
 		_ = host.l.Close()
 		time.Sleep(time.Second) // let the terminator go
-		_, err := roundTrip(zClient, appData, "anyone there?")
+		_, err := roundTrip(zClient, e2eService, appData, "anyone there?")
 		if err == nil {
 			t.Fatal("dial succeeded with no host on B")
 		}

@@ -367,12 +367,27 @@ web:
 		"web:\n  ziti:\n    network: acme\n    hosts: [h]\n":                                         "web.ziti.service is required",
 		"web:\n  ziti:\n    network: acme\n    service: s\n":                                         "web.ziti.hosts is required",
 		"web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [\"a b\"]\n":                   "is not a host name",
+		"web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [\"h:0\"]\n":                   "port must be a number",
+		"web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [\"h:x\"]\n":                   "port must be a number",
+		"web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [\":80\"]\n":                   "is not a host name",
 		"web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [h]\n    policy_access: all\n": `policy_access "all"`,
 	}
 	for cfg, want := range tests {
 		_, err := Load(writeDir(t, map[string]string{"networks/acme.json": "{}", ConfigFileName: cfg}))
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want %q", cfg, err, want)
+		}
+	}
+}
+
+func TestWebHostWithPort(t *testing.T) {
+	cfg := "web:\n  ziti:\n    network: acme\n    service: s\n    hosts: [\"stitch-admin.ziti:8080\", h]\n"
+	if _, err := Load(writeDir(t, map[string]string{"networks/acme.json": "{}", ConfigFileName: cfg})); err != nil {
+		t.Fatal(err)
+	}
+	for in, want := range map[string]string{"stitch-admin.ziti:8080": "stitch-admin.ziti", "h": "h"} {
+		if got := HostName(in); got != want {
+			t.Errorf("HostName(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

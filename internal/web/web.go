@@ -130,7 +130,7 @@ func New(o Options) (*Server, error) {
 	}
 	if z := o.Web.Ziti; z != nil {
 		for _, h := range z.Hosts {
-			s.zitiHosts[strings.ToLower(h)] = true
+			s.zitiHosts[strings.ToLower(config.HostName(h))] = true
 		}
 		s.lastZiti.Store(z)
 	}

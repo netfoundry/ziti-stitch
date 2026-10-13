@@ -27,6 +27,7 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
 	gmutil "github.com/yuin/goldmark/util"
@@ -65,7 +66,7 @@ func loadDocs() (map[string]*docPage, []*docPage, error) {
 		for _, n := range names {
 			published[n] = true
 		}
-		md := goldmark.New(goldmark.WithParserOptions(
+		md := goldmark.New(goldmark.WithExtensions(extension.Table), goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
 			parser.WithASTTransformers(gmutil.Prioritized(docLinks{published}, 100)),
 		))

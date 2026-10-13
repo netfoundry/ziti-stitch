@@ -13,6 +13,7 @@
 #
 # Network A (where clients are):          Network B (where the real service is):
 #   stitch-a  #stitch-hosts   binds echo    stitch-b  #stitch-dialers  dials echo, renew
+#   stitch-a2 (a second instance, ditto)    stitch-b2 (ditto)
 #   client-a  #stitch-clients dials echo    host-b    #echo-hosts      binds echo
 #                                           renew-b   #renew-hosts     binds renew
 #                                             (only the e2e renewal test uses renew-b: renewing
@@ -110,19 +111,23 @@ up() {
   zt a create service echo -a stitched >/dev/null
   zt a create service e2e -a stitched >/dev/null # for go test -tags e2e only
   zt a create service stitch-admin -a stitched >/dev/null # the web UI over Ziti, ditto
+  zt a create service ha -a stitched >/dev/null # two instances, ditto
   zt a create service-policy stitch-hosts-bind Bind --identity-roles '#stitch-hosts' --service-roles '#stitched' >/dev/null
   zt a create service-policy stitch-clients-dial Dial --identity-roles '#stitch-clients' --service-roles '#stitched' >/dev/null
   create_identity a stitch-a stitch-hosts
+  create_identity a stitch-a2 stitch-hosts # a second instance
   create_identity a client-a stitch-clients
 
   log "configuring network B: host-b binds echo, stitch-b dials it"
   zt b create service echo -a echo >/dev/null
   zt b create service e2e -a echo >/dev/null # for go test -tags e2e only
+  zt b create service ha -a echo >/dev/null # ditto
   zt b create service-policy echo-hosts-bind Bind --identity-roles '#echo-hosts' --service-roles '#echo' >/dev/null
   zt b create service-policy stitch-dialers-dial Dial --identity-roles '#stitch-dialers' --service-roles '#echo,#renew' >/dev/null
   zt b create service renew -a renew >/dev/null
   zt b create service-policy renew-hosts-bind Bind --identity-roles '#renew-hosts' --service-roles '#renew' >/dev/null
   create_identity b stitch-b stitch-dialers
+  create_identity b stitch-b2 stitch-dialers # a second instance
   create_identity b host-b echo-hosts
   create_identity b renew-b renew-hosts
 
@@ -138,8 +143,10 @@ Networks are running.
 
 Identities:
   $RUN_DIR/a/stitch-a.json   binds  A:echo
+  $RUN_DIR/a/stitch-a2.json  binds  A:echo  (a second instance)
   $RUN_DIR/a/client-a.json   dials  A:echo
   $RUN_DIR/b/stitch-b.json   dials  B:echo
+  $RUN_DIR/b/stitch-b2.json  dials  B:echo  (a second instance)
   $RUN_DIR/b/host-b.json     binds  B:echo
   $RUN_DIR/b/renew-b.json    binds  B:renew  (go test -tags e2e ./... renews it)
 

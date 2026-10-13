@@ -30,6 +30,8 @@ archives:
       - README.md
       - docs/install.md
       - docs/admin-checklist.md
+      - docs/web-ui.md
+      - docs/high-availability.md
 
 checksum:
   name_template: checksums.txt
