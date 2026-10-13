@@ -44,6 +44,10 @@ import (
 const (
 	renewCheckInterval = time.Hour
 	renewRetryInterval = 5 * time.Minute
+	// pendingRetryInterval is the retry while a renewal's outcome is
+	// unknown: the controller may already reject the certificate the
+	// running context holds.
+	pendingRetryInterval = 30 * time.Second
 	// renewRequestTimeout bounds each controller call made while renewing.
 	renewRequestTimeout = 30 * time.Second
 	// maxRenewWindow is how long before expiry a long-lived certificate is
@@ -67,6 +71,9 @@ func (n *Network) keepRenewed(ctx context.Context, zctx ziti.Context) {
 	impl, ok := zctx.(*ziti.ContextImpl)
 	if !ok {
 		n.log.Error("certificate renewal is unavailable; the identity will stop working when its certificate expires", "context_type", fmt.Sprintf("%T", zctx))
+		// Returning early would end Run, which closes the context the
+		// stitches are using.
+		<-ctx.Done()
 		return
 	}
 	clt := impl.CtrlClt
@@ -74,6 +81,9 @@ func (n *Network) keepRenewed(ctx context.Context, zctx ziti.Context) {
 		wait := renewCheckInterval
 		if err := n.renewIfNeeded(ctx, clt); err != nil {
 			wait = renewRetryInterval
+			if _, serr := os.Stat(n.pendingPath()); serr == nil {
+				wait = pendingRetryInterval
+			}
 			level := slog.LevelWarn
 			if leaf, lerr := currentCert(clt); lerr == nil && time.Until(leaf.NotAfter) < expiryWarning {
 				level = slog.LevelError

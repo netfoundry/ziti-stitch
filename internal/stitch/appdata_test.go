@@ -105,6 +105,18 @@ func TestAnnotateRefusesLoops(t *testing.T) {
 	}
 }
 
+// The dialer controls the hop count; a negative one must not buy a loop
+// more hops.
+func TestAnnotateTreatsNegativeHopsAsZero(t *testing.T) {
+	out, err := egressAppData(config.AppDataAnnotate, []byte(`{"ziti_stitch":{"hops":-1000000000}}`), "s", testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"hops":1`) {
+		t.Errorf("annotate = %s, want hops 1", out)
+	}
+}
+
 func TestAnnotateRejectsNonObjects(t *testing.T) {
 	for _, in := range []string{"not json", `["a"]`, `"text"`} {
 		if _, err := egressAppData(config.AppDataAnnotate, []byte(in), "s", testOrigin); err == nil || errors.Is(err, errTooManyHops) {

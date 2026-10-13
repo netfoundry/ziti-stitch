@@ -83,7 +83,11 @@ App data (what the dialer sent along, e.g. a tunneler's intercepted address):
   strip        send none
   annotate     forward it with a ziti_stitch object added, naming the stitch
                and the original dialer. Reveals ingress identity names to the
-               egress network.`,
+               egress network.
+
+Only annotate writes the ziti_stitch object; passthrough forwards whatever
+the dialer sent, including one it made up. The egress side should trust
+that object only from a stitch it knows annotates.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]

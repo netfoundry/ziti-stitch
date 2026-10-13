@@ -87,6 +87,7 @@ type Server struct {
 	zitiHosts     map[string]bool // host names the Ziti listener answers to
 	lastZiti      atomic.Pointer[config.WebZiti]
 	probe         func(name, path string) diagnose.NetworkReport
+	tests         networkTests
 	now           func() time.Time
 }
 
@@ -145,7 +146,16 @@ const zitiBindTimeout = 10 * time.Second
 // its own: a loopback address that is taken is logged, and the Ziti
 // listener keeps retrying, like a stitch does.
 func (s *Server) Serve(ctx context.Context) {
-	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, ConnContext: withCaller}
+	// Over Ziti, anyone the service policy admits can connect, access or
+	// not, so slow or idle connections must not be held open for long.
+	srv := &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second, // a network test logs in to a controller first
+		IdleTimeout:       2 * time.Minute,
+		ConnContext:       withCaller,
+	}
 	var wg sync.WaitGroup
 	if s.web.Listen != "" {
 		if ln, err := net.Listen("tcp", s.web.Listen); err != nil {

@@ -90,7 +90,9 @@ func annotate(in []byte, stitch string, o origin) ([]byte, error) {
 	if prev, ok := doc[annotationKey]; ok {
 		var a annotation
 		if json.Unmarshal(prev, &a) == nil {
-			hops = a.Hops + 1
+			// The dialer controls this; a negative count must not buy a
+			// loop more hops.
+			hops = max(a.Hops, 0) + 1
 		}
 	}
 	if hops > maxHops {

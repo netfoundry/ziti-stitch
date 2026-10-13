@@ -20,6 +20,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/openziti/sdk-golang/ziti/edge"
@@ -50,14 +51,21 @@ type precedenceSetter interface {
 // A gated instance learns the egress side is back in one of two ways: a
 // dial it still receives (it is still the last resort) succeeds, or probe
 // reports true. Probe runs on a backoff while gated.
+//
+// The SDK binds terminators it adds later (a router reconnecting, a new
+// router) with the precedence the listener was created with, and
+// UpdatePrecedence only reaches the terminators that exist when it is
+// called. So every unsuccessful probe lowers the precedence again.
 type gate struct {
 	l      precedenceSetter
 	normal edge.Precedence
 	probe  func(context.Context) bool
 	log    *slog.Logger
 
+	// down is read without mu on every connection; mu serializes the
+	// transitions, which talk to the router and can take seconds.
+	down        atomic.Bool
 	mu          sync.Mutex
-	down        bool
 	stopped     bool
 	cancelProbe context.CancelFunc
 }
@@ -68,12 +76,15 @@ func newGate(l precedenceSetter, normal edge.Precedence, probe func(context.Cont
 
 // failed records a failed egress dial.
 func (g *gate) failed() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.down || g.stopped || g.normal == edge.PrecedenceFailed {
+	if g.down.Load() {
 		return
 	}
-	g.down = true
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.down.Load() || g.stopped || g.normal == edge.PrecedenceFailed {
+		return
+	}
+	g.down.Store(true)
 	if err := g.l.UpdatePrecedence(edge.PrecedenceFailed); err != nil {
 		g.log.Error("egress service unreachable, and lowering precedence failed", "error", err)
 	} else {
@@ -86,12 +97,15 @@ func (g *gate) failed() {
 
 // ok records a successful egress dial.
 func (g *gate) ok() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if !g.down || g.stopped {
+	if !g.down.Load() {
 		return
 	}
-	g.down = false
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.down.Load() || g.stopped {
+		return
+	}
+	g.down.Store(false)
 	g.cancelProbe()
 	if err := g.l.UpdatePrecedence(g.normal); err != nil {
 		g.log.Error("egress service is back, but restoring precedence failed", "error", err)
@@ -102,9 +116,20 @@ func (g *gate) ok() {
 
 // isDown reports whether the gate has lowered the listener's precedence.
 func (g *gate) isDown() bool {
+	return g.down.Load()
+}
+
+// lowerAgain re-applies precedence failed while the gate is down, for
+// terminators the SDK bound since it was lowered.
+func (g *gate) lowerAgain() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.down
+	if !g.down.Load() || g.stopped {
+		return
+	}
+	if err := g.l.UpdatePrecedence(edge.PrecedenceFailed); err != nil {
+		g.log.Debug("lowering precedence again failed", "error", err)
+	}
 }
 
 // stop ends probing. The listener is going away, so its precedence no
@@ -125,5 +150,6 @@ func (g *gate) probeUntilBack(ctx context.Context) {
 			g.ok()
 			return
 		}
+		g.lowerAgain()
 	}
 }

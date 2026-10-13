@@ -306,115 +306,149 @@ func (s Stitch) WithDefaults() Stitch {
 
 // Validate checks the whole configuration and reports every problem.
 func (d *Dir) Validate() error {
-	var errs []error
-	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	var p problems
+	d.validateLog(&p)
+	d.validateWeb(&p)
+	ingress := d.validateStitches(&p)
+	if z := d.Config.Web.Ziti; z != nil {
+		// One identity binding a service twice splits its dials between
+		// the UI and the stitch.
+		key := endpointKey(z.Network, z.Service)
+		if other, ok := ingress[key]; ok {
+			p.add("%s: web.ziti binds %s, which stitch %q also binds", ConfigFileName, key, other)
+		}
+	}
+	if len(p) == 0 {
+		p = append(p, d.findCycles()...)
+	}
+	return errors.Join(p...)
+}
 
+// problems collects what Validate finds, so that it reports all of it.
+type problems []error
+
+func (p *problems) add(format string, args ...any) {
+	*p = append(*p, fmt.Errorf(format, args...))
+}
+
+func (d *Dir) validateLog(p *problems) {
 	switch d.Config.Log.Level {
 	case "debug", "info", "warn", "error":
 	default:
-		add("%s: log.level %q is not one of debug, info, warn, error", ConfigFileName, d.Config.Log.Level)
+		p.add("%s: log.level %q is not one of debug, info, warn, error", ConfigFileName, d.Config.Log.Level)
 	}
 	switch d.Config.Log.Format {
 	case "text", "json":
 	default:
-		add("%s: log.format %q is not one of text, json", ConfigFileName, d.Config.Log.Format)
+		p.add("%s: log.format %q is not one of text, json", ConfigFileName, d.Config.Log.Format)
 	}
+}
+
+func (d *Dir) validateWeb(p *problems) {
 	if l := d.Config.Web.Listen; l != "" {
 		if err := checkLoopback(l); err != nil {
-			add("%s: web.listen: %v", ConfigFileName, err)
+			p.add("%s: web.listen: %v", ConfigFileName, err)
 		}
 	}
-	if z := d.Config.Web.Ziti; z != nil {
-		if z.Network == "" {
-			add("%s: web.ziti.network is required", ConfigFileName)
-		} else if _, ok := d.Network(z.Network); !ok {
-			add("%s: web.ziti.network %q has no identity in %s/", ConfigFileName, z.Network, NetworksDirName)
-		}
-		if z.Service == "" {
-			add("%s: web.ziti.service is required", ConfigFileName)
-		}
-		if len(z.Hosts) == 0 {
-			add("%s: web.ziti.hosts is required: the name(s) people reach the service by, from its intercept config", ConfigFileName)
-		}
-		for _, h := range z.Hosts {
-			if err := checkWebHost(h); err != nil {
-				add("%s: web.ziti.hosts: %v", ConfigFileName, err)
-			}
-		}
-		for _, id := range z.Allow {
-			if id == "" {
-				add("%s: web.ziti.allow has an empty identity id", ConfigFileName)
-			}
-		}
-		switch z.PolicyAccess {
-		case AccessNone, AccessRead, AccessEdit:
-		default:
-			add("%s: web.ziti.policy_access %q is not one of none, read, edit", ConfigFileName, z.PolicyAccess)
+	z := d.Config.Web.Ziti
+	if z == nil {
+		return
+	}
+	if z.Network == "" {
+		p.add("%s: web.ziti.network is required", ConfigFileName)
+	} else if _, ok := d.Network(z.Network); !ok {
+		p.add("%s: web.ziti.network %q has no identity in %s/", ConfigFileName, z.Network, NetworksDirName)
+	}
+	if z.Service == "" {
+		p.add("%s: web.ziti.service is required", ConfigFileName)
+	}
+	if len(z.Hosts) == 0 {
+		p.add("%s: web.ziti.hosts is required: the name(s) people reach the service by, from its intercept config", ConfigFileName)
+	}
+	for _, h := range z.Hosts {
+		if err := checkWebHost(h); err != nil {
+			p.add("%s: web.ziti.hosts: %v", ConfigFileName, err)
 		}
 	}
+	for _, id := range z.Allow {
+		if id == "" {
+			p.add("%s: web.ziti.allow has an empty identity id", ConfigFileName)
+		}
+	}
+	switch z.PolicyAccess {
+	case AccessNone, AccessRead, AccessEdit:
+	default:
+		p.add("%s: web.ziti.policy_access %q is not one of none, read, edit", ConfigFileName, z.PolicyAccess)
+	}
+}
 
+// validateStitches checks each stitch and that names and enabled ingress
+// services are unique. It returns the enabled ingress services, as
+// network/service -> stitch name.
+func (d *Dir) validateStitches(p *problems) map[string]string {
 	names := map[string]bool{}
-	ingress := map[string]string{} // network/service -> stitch name, enabled stitches only
+	ingress := map[string]string{}
 	for i, s := range d.Stitches {
 		where := fmt.Sprintf("%s: stitch %q", StitchesFileName, s.Name)
 		if s.Name == "" {
 			where = fmt.Sprintf("%s: stitch #%d", StitchesFileName, i+1)
-			add("%s has no name", where)
+			p.add("%s has no name", where)
 		} else if !ValidName(s.Name) {
-			add("%s: name is not valid (lower case letters, digits, '-' and '_')", where)
+			p.add("%s: name is not valid (lower case letters, digits, '-' and '_')", where)
 		} else if names[s.Name] {
-			add("%s: name is used more than once", where)
+			p.add("%s: name is used more than once", where)
 		}
 		names[s.Name] = true
-
-		for _, ep := range []struct{ side, network, service string }{
-			{"from", s.From.Network, s.From.Service},
-			{"to", s.To.Network, s.To.Service},
-		} {
-			if ep.network == "" {
-				add("%s: %s.network is required", where, ep.side)
-			} else if _, ok := d.Network(ep.network); !ok {
-				add("%s: %s.network %q has no identity in %s/", where, ep.side, ep.network, NetworksDirName)
-			}
-			if ep.service == "" {
-				add("%s: %s.service is required", where, ep.side)
-			}
-		}
-		if s.From.Network != "" && s.From.Network == s.To.Network && s.From.Service == s.To.Service {
-			add("%s: dials the service it binds", where)
-		}
-		switch s.From.Precedence {
-		case PrecedenceDefault, PrecedenceRequired, PrecedenceFailed:
-		default:
-			add("%s: from.precedence %q is not one of default, required, failed", where, s.From.Precedence)
-		}
-		switch s.AppData {
-		case AppDataPassthrough, AppDataStrip, AppDataAnnotate:
-		default:
-			add("%s: app_data %q is not one of passthrough, strip, annotate", where, s.AppData)
-		}
-		if s.IdleTimeout < 0 {
-			add("%s: idle_timeout cannot be negative", where)
-		}
-		if s.To.ConnectTimeout < 0 {
-			add("%s: to.connect_timeout cannot be negative", where)
-		}
+		d.validateStitch(p, where, s)
 
 		if s.Disabled {
 			continue
 		}
 		key := endpointKey(s.From.Network, s.From.Service)
 		if other, ok := ingress[key]; ok {
-			add("%s: binds %s, which stitch %q already binds", where, key, other)
+			p.add("%s: binds %s, which stitch %q already binds", where, key, other)
 		} else {
 			ingress[key] = s.Name
 		}
 	}
+	return ingress
+}
 
-	if len(errs) == 0 {
-		errs = append(errs, d.findCycles()...)
+// validateStitch checks one stitch's own settings; where names it in
+// messages.
+func (d *Dir) validateStitch(p *problems, where string, s Stitch) {
+	for _, ep := range []struct{ side, network, service string }{
+		{"from", s.From.Network, s.From.Service},
+		{"to", s.To.Network, s.To.Service},
+	} {
+		if ep.network == "" {
+			p.add("%s: %s.network is required", where, ep.side)
+		} else if _, ok := d.Network(ep.network); !ok {
+			p.add("%s: %s.network %q has no identity in %s/", where, ep.side, ep.network, NetworksDirName)
+		}
+		if ep.service == "" {
+			p.add("%s: %s.service is required", where, ep.side)
+		}
 	}
-	return errors.Join(errs...)
+	if s.From.Network != "" && s.From.Network == s.To.Network && s.From.Service == s.To.Service {
+		p.add("%s: dials the service it binds", where)
+	}
+	switch s.From.Precedence {
+	case PrecedenceDefault, PrecedenceRequired, PrecedenceFailed:
+	default:
+		p.add("%s: from.precedence %q is not one of default, required, failed", where, s.From.Precedence)
+	}
+	switch s.AppData {
+	case AppDataPassthrough, AppDataStrip, AppDataAnnotate:
+	default:
+		p.add("%s: app_data %q is not one of passthrough, strip, annotate", where, s.AppData)
+	}
+	if s.IdleTimeout < 0 {
+		p.add("%s: idle_timeout cannot be negative", where)
+	}
+	if s.To.ConnectTimeout < 0 {
+		p.add("%s: to.connect_timeout cannot be negative", where)
+	}
 }
 
 // findCycles reports chains of enabled stitches that lead back to where
@@ -481,12 +515,16 @@ func checkWebHost(h string) error {
 	if name == "" || strings.ContainsAny(name, "/ :[]") {
 		return fmt.Errorf("%q is not a host name, or host:port", h)
 	}
-	if hasPort {
-		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-			return fmt.Errorf("%q: the port must be a number from 1 to 65535", h)
-		}
+	if hasPort && !validPort(port) {
+		return fmt.Errorf("%q: the port must be a number from 1 to 65535", h)
 	}
 	return nil
+}
+
+// validPort reports whether s is a TCP port number.
+func validPort(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n >= 1 && n <= 65535
 }
 
 // checkLoopback accepts host:port where the host is a loopback address.
@@ -497,7 +535,7 @@ func checkLoopback(hostport string) error {
 	if err != nil {
 		return err
 	}
-	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+	if !validPort(port) {
 		return fmt.Errorf("%q is not a valid port", port)
 	}
 	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {

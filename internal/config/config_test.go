@@ -392,6 +392,18 @@ func TestWebHostWithPort(t *testing.T) {
 	}
 }
 
+func TestWebZitiServiceCannotBeAStitchIngress(t *testing.T) {
+	files := map[string]string{
+		"networks/acme.json":    "{}",
+		"networks/partner.json": "{}",
+		ConfigFileName:          "web:\n  ziti:\n    network: acme\n    service: billing-api\n    hosts: [h]\n",
+		StitchesFileName:        "stitches:\n  - name: billing\n    from: {network: acme, service: billing-api}\n    to: {network: partner, service: billing}\n",
+	}
+	if _, err := Load(writeDir(t, files)); err == nil || !strings.Contains(err.Error(), `web.ziti binds acme:billing-api, which stitch "billing" also binds`) {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestWebSameListeners(t *testing.T) {
 	z := func(allow ...string) *WebZiti {
 		return &WebZiti{Network: "acme", Service: "s", Hosts: []string{"h"}, Allow: allow, PolicyAccess: AccessNone}

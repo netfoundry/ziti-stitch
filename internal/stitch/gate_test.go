@@ -88,12 +88,35 @@ func TestGateProbeRestores(t *testing.T) {
 
 	g.failed()
 	deadline := time.Now().Add(5 * time.Second)
+	for len(l.history()) < 3 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Lowered, lowered again after the first probe failed, restored.
+	want := []edge.Precedence{edge.PrecedenceFailed, edge.PrecedenceFailed, edge.PrecedenceDefault}
+	if got := l.history(); !slices.Equal(got, want) {
+		t.Errorf("updates = %v, want %v", got, want)
+	}
+}
+
+// The SDK binds later terminators with the original precedence, so the
+// gate lowers it again after every unsuccessful probe.
+func TestGateLowersAgainWhileDown(t *testing.T) {
+	l := &fakeListener{}
+	g := newGate(l, edge.PrecedenceRequired, neverBack, discard)
+	defer g.stop()
+
+	g.failed()
+	deadline := time.Now().Add(5 * time.Second)
 	for len(l.history()) < 2 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	want := []edge.Precedence{edge.PrecedenceFailed, edge.PrecedenceDefault}
-	if got := l.history(); !slices.Equal(got, want) {
-		t.Errorf("updates = %v, want %v", got, want)
+	for i, p := range l.history() {
+		if p != edge.PrecedenceFailed {
+			t.Errorf("update %d = %v while down, want failed", i, p)
+		}
+	}
+	if n := len(l.history()); n < 2 {
+		t.Errorf("%d updates, want the lowering and at least one more", n)
 	}
 }
 

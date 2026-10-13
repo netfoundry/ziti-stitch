@@ -70,10 +70,12 @@ type Stitch struct {
 
 	conns sync.WaitGroup // connections in flight, for draining
 
-	// lastAppData is the app data of the most recent failed egress dial.
-	// The gate's probe dials with it, because a tunneler host on the
-	// egress side may reject a dial that carries none.
-	lastAppData atomic.Pointer[[]byte]
+	// probeAppData is what the gate's probe dials with, because a
+	// tunneler host on the egress side may reject a dial that carries
+	// none. It is the app data of the last egress dial that succeeded, so
+	// one client whose app data the host rejects cannot keep the stitch
+	// gated; until a dial has succeeded, that of the first failed one.
+	probeAppData atomic.Pointer[[]byte]
 
 	track tracker
 	gate  atomic.Pointer[gate] // the current listener's, while there is one
@@ -235,7 +237,7 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 	})
 	if errors.Is(err, errTooManyHops) {
 		log.Warn("connection refused: it has passed through too many stitches, which suggests a loop")
-		in.CompleteAcceptFailed(errLoopRefused)
+		refuse(in, errLoopRefused)
 		s.track.failedOne(errTooManyHops)
 		return
 	}
@@ -250,12 +252,13 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 	})
 	if err != nil {
 		log.Warn("connection failed: cannot reach the egress service", "error", err, "dial_time", time.Since(start))
-		in.CompleteAcceptFailed(errUpstreamUnavailable)
+		refuse(in, errUpstreamUnavailable)
 		s.track.failedOne(fmt.Errorf("cannot reach %s: %w", s.cfg.To.Service, err))
-		s.lastAppData.Store(&appData)
+		s.probeAppData.CompareAndSwap(nil, &appData)
 		g.failed()
 		return
 	}
+	s.probeAppData.Store(&appData)
 	g.ok()
 	log = log.With("b_circuit", out.GetCircuitId())
 
@@ -283,6 +286,15 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 	log.Info("connection closed", attrs...)
 }
 
+// refuse fails an ingress dial we accepted but cannot complete. The SDK
+// registered the connection with the router channel before handing it to
+// us, and CompleteAcceptFailed only answers the router, so it must be
+// closed as well or it stays registered until the channel goes.
+func refuse(in edge.Conn, reason error) {
+	in.CompleteAcceptFailed(reason)
+	_ = in.Close()
+}
+
 // egressReachable is the gate's probe. A service with no terminators is
 // certainly down, and checking costs the egress side nothing. Otherwise
 // only a real dial tells (a host can be bound while its backend is down);
@@ -292,7 +304,7 @@ func (s *Stitch) egressReachable(ctx context.Context, zB ziti.Context) bool {
 		return false
 	}
 	var appData []byte
-	if p := s.lastAppData.Load(); p != nil {
+	if p := s.probeAppData.Load(); p != nil {
 		appData = *p
 	}
 	c, err := zB.DialContextWithOptions(ctx, s.cfg.To.Service, &ziti.DialOptions{

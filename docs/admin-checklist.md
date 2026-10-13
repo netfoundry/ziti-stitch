@@ -54,6 +54,8 @@ ziti-stitch is a client here, like any SDK app dialing a service.
 
 Whoever hosts the real service needs no changes. If it is a tunneler that forwards to the address the client intercepted (`forwardAddress` etc. in `host.v1`), it relies on the client's app data, which ziti-stitch passes through unchanged by default.
 
+If the stitch is set to `annotate`, the app data also carries a `ziti_stitch` object naming the stitch and the original caller. Trust it only from a stitch you know annotates: with the default, passthrough, it is whatever the client sent.
+
 ## The web UI over Ziti
 
 Only if ziti-stitch's web UI is to be reached as a Ziti service. On the network named in `web.ziti.network`: a service with an `intercept.v1` config for the address people will use, a Bind policy for the ziti-stitch identities, and a Dial policy for the people who should reach it. The commands, and what the Dial policy does and does not grant, are in [web-ui.md](web-ui.md#what-the-network-admin-creates).

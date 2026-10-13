@@ -31,8 +31,9 @@ import (
 )
 
 // sdkSecretFields are SDK log fields that carry credentials. The SDK logs
-// the service session token, a bearer JWT, when an accept fails.
-var sdkSecretFields = []string{"token", "jwt", "apiSessionToken", "sessionToken"}
+// the service session token, a bearer JWT, when an accept fails ("token"),
+// and the bind session token at debug ("session").
+var sdkSecretFields = []string{"token", "jwt", "apiSessionToken", "sessionToken", "session"}
 
 const (
 	// The SDK can log the same failure thousands of times a second (it

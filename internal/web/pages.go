@@ -461,7 +461,7 @@ func (s *Server) handleNetworkTest(w http.ResponseWriter, r *http.Request, v *vi
 		s.renderError(w, r, v, http.StatusNotFound, "There is no network called "+name+".")
 		return
 	}
-	report := s.probe(n.Name, n.IdentityFile)
+	report := s.testNetwork(n.Name, n.IdentityFile)
 	test := &networkTest{Name: name, Report: report}
 	for svc, a := range report.Services {
 		test.Services = append(test.Services, serviceRow{Name: svc, Access: a})

@@ -48,6 +48,15 @@ func TestSDKFormatterRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestRedactsEverySecretField(t *testing.T) {
+	for _, f := range sdkSecretFields {
+		e := logrus.NewEntry(logrus.New()).WithField(f, "eyJsecret")
+		if r := redact(e); r.Data[f] != "[redacted]" {
+			t.Errorf("%s not redacted: %v", f, r.Data)
+		}
+	}
+}
+
 func TestRedactDoesNotMutateEntry(t *testing.T) {
 	e := logrus.NewEntry(logrus.New()).WithField("token", "eyJsecret")
 	if r := redact(e); r.Data["token"] != "[redacted]" {
