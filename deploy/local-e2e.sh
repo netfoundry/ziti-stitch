@@ -11,6 +11,7 @@
 #
 # Needs: ziti 1.6.7+ (2.0+ for the caller-identity tests), jq, curl. ZITI_BIN=/path/to/ziti picks a binary;
 # ZITI_VERSION=2.0.6 downloads that release into .cache/ instead.
+# ZET_BIN=/path/to/ziti-edge-tunnel replaces the pinned one in the tunnelers test.
 # Ports: A_CTRL_PORT=12910 A_ROUTER_PORT=30910 B_CTRL_PORT=12920 B_ROUTER_PORT=30920
 #
 # Network A (where clients are):          Network B (where the real service is):
@@ -198,8 +199,10 @@ zet_sha256() {
   esac
 }
 
-# resolve_zet sets ZET to a verified ziti-edge-tunnel, downloading it once.
+# resolve_zet sets ZET: ZET_BIN if given, else the pinned release, verified
+# and downloaded once.
 resolve_zet() {
+  if [[ -n "${ZET_BIN:-}" ]]; then ZET="$ZET_BIN"; return; fi
   local arch dir
   case "$(uname -m)" in
     x86_64 | amd64) arch=x86_64 ;;
