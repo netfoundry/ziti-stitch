@@ -10,7 +10,7 @@
 #   ./deploy/local-e2e.sh down       stop everything and remove the run directory
 #
 # Needs: ziti 1.6.7+ (2.0+ for the caller-identity tests), jq, curl. ZITI_BIN=/path/to/ziti picks a binary;
-# ZITI_VERSION=2.0.8 downloads that release into .cache/ instead.
+# ZITI_VERSION=2.0.6 downloads that release into .cache/ instead.
 # Ports: A_CTRL_PORT=12910 A_ROUTER_PORT=30910 B_CTRL_PORT=12920 B_ROUTER_PORT=30920
 #
 # Network A (where clients are):          Network B (where the real service is):

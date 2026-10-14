@@ -129,7 +129,7 @@ make build-all  # every release target, CGO off
 Integration tests run against two local Ziti networks:
 
 ```
-./deploy/local-e2e.sh up      # ZITI_VERSION=2.0.8 to pin a release
+./deploy/local-e2e.sh up      # ZITI_VERSION=2.0.6 to pin a release
 make e2e-test
 ./deploy/local-e2e.sh down
 ```

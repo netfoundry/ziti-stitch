@@ -58,7 +58,7 @@ jobs:
       matrix:
         # The newest release, and the oldest supported line. Tests that
         # need the caller's identity skip themselves before 2.0.
-        ziti: ["2.0.8", "1.6.21"]
+        ziti: ["2.0.6", "1.6.21"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -93,7 +93,7 @@ jobs:
       - name: start both networks
         run: ./deploy/local-e2e.sh up
         env:
-          ZITI_VERSION: "2.0.8"
+          ZITI_VERSION: "2.0.6"
       - name: client and host ziti-edge-tunnel through a stitch
         run: ./deploy/local-e2e.sh tunnelers
       - name: show the tunnelers' logs
