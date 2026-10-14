@@ -155,6 +155,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # An rc tag on the same commit would otherwise win.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
       - run: .github/scripts/install-helm.sh
       - name: publish the Helm chart
         run: |
