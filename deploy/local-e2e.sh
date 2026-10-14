@@ -217,7 +217,9 @@ resolve_zet() {
 # The hosting side forwards by the port in the client's app data
 # (forwardPort), so a request only arrives if the stitch passed the app data
 # on unchanged. It runs again with app_data annotate, to check that the C
-# SDK accepts the extra ziti_stitch key.
+# SDK accepts the extra ziti_stitch key. A second stitch does the same for
+# UDP (192.0.2.11:7001): tunnelers carry one datagram per Ziti message, so
+# every datagram must come back whole and on its own.
 tunnelers() {
   [[ "$(uname -s)" == Linux ]] || die "the tunnelers test needs Linux, for ziti-edge-tunnel"
   [[ -s "$RUN_DIR/ziti-bin" ]] || die "start the networks first: $0 up"
@@ -226,6 +228,7 @@ tunnelers() {
   ZITI="$(cat "$RUN_DIR/ziti-bin")"
   resolve_zet
   local ip=192.0.2.10 port=7000 marker="stitched by ziti-stitch $$"
+  local udp_ip=192.0.2.11 udp_port=7001
   local www="$RUN_DIR/www" cfg="$RUN_DIR/tunnel-stitch" zs="$RUN_DIR/ziti-stitch"
 
   log "configuring the tunneled service on both networks"
@@ -235,17 +238,25 @@ tunnelers() {
   zt b create config tunneled-host host.v1 \
     "{\"protocol\":\"tcp\",\"address\":\"127.0.0.1\",\"forwardPort\":true,\"allowedPortRanges\":[{\"low\":$port,\"high\":$port}]}" >/dev/null
   zt b create service tunneled -a echo --configs tunneled-host >/dev/null
+  zt a create config tunneled-udp-intercept intercept.v1 \
+    "{\"protocols\":[\"udp\"],\"addresses\":[\"$udp_ip\"],\"portRanges\":[{\"low\":$udp_port,\"high\":$udp_port}]}" >/dev/null
+  zt a create service tunneled-udp -a stitched --configs tunneled-udp-intercept >/dev/null
+  zt b create config tunneled-udp-host host.v1 \
+    "{\"protocol\":\"udp\",\"address\":\"127.0.0.1\",\"forwardPort\":true,\"allowedPortRanges\":[{\"low\":$udp_port,\"high\":$udp_port}]}" >/dev/null
+  zt b create service tunneled-udp -a echo --configs tunneled-udp-host >/dev/null
   create_identity a tunnel-client-a stitch-clients
   create_identity b tunnel-host-b echo-hosts
 
   log "starting a web server, the hosting tunneler and ziti-stitch"
   mkdir -p "$www" && echo "$marker" >"$www/marker"
   start_bg tunnel-www python3 -m http.server "$port" --bind 127.0.0.1 --directory "$www"
+  start_bg tunnel-udp-echo python3 -c "$UDP_ECHO" "$udp_port"
   start_bg tunnel-host "$ZET" run-host -i "$RUN_DIR/b/tunnel-host-b.json"
   go build -o "$zs" ./cmd/ziti-stitch
   "$zs" --config-dir "$cfg" network add --identity "$RUN_DIR/a/stitch-a.json" --name a >/dev/null
   "$zs" --config-dir "$cfg" network add --identity "$RUN_DIR/b/stitch-b.json" --name b >/dev/null
   "$zs" --config-dir "$cfg" stitch add tunneled --from a:tunneled --to b:tunneled >/dev/null
+  "$zs" --config-dir "$cfg" stitch add tunneled-udp --from a:tunneled-udp --to b:tunneled-udp >/dev/null
   start_bg tunnel-stitch "$zs" --config-dir "$cfg" run
 
   log "starting the client tunneler"
@@ -255,6 +266,7 @@ tunnelers() {
 
   fetch_through_tunnelers "$ip" "$port" "$marker" || die "no answer through the tunnelers (passthrough); see $RUN_DIR/tunnel-*.log"
   echo "passthrough: ok"
+  python3 -c "$UDP_CHECK" "$udp_ip" "$udp_port" || die "UDP through the tunnelers failed; see $RUN_DIR/tunnel-*.log"
 
   log "switching the stitch to app_data annotate"
   "$zs" --config-dir "$cfg" stitch remove tunneled >/dev/null
@@ -264,6 +276,57 @@ tunnelers() {
   echo "annotate: ok"
   log "tunnelers test passed"
 }
+
+# UDP_ECHO is a UDP echo server on 127.0.0.1:<port>.
+UDP_ECHO='
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", int(sys.argv[1])))
+while True:
+    data, addr = s.recvfrom(65535)
+    s.sendto(data, addr)
+'
+
+# UDP_CHECK sends datagrams of several sizes to <ip> <port>, one at a time
+# and then in a burst, and checks each comes back whole and on its own.
+# Sizes stop at 1472, a whole 1500-byte packet: ziti-edge-tunnel (1.18)
+# forwards each IP fragment of a larger datagram as a datagram of its own,
+# with or without a stitch.
+UDP_CHECK='
+import os, socket, sys, time
+addr = (sys.argv[1], int(sys.argv[2]))
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(3)
+deadline = time.time() + 60
+while True:  # the first datagram may race the intercept being set up
+    try:
+        s.sendto(b"hello", addr)
+        if s.recvfrom(65535)[0] == b"hello":
+            break
+    except OSError:
+        pass
+    if time.time() > deadline:
+        sys.exit("no UDP answer through the tunnelers")
+for size in (1, 100, 1400, 1472):
+    sent = os.urandom(size)
+    s.sendto(sent, addr)
+    got = s.recvfrom(65535)[0]
+    if got != sent:
+        sys.exit(f"a {size}-byte datagram came back as {len(got)} bytes")
+sizes = [37 * (i + 1) for i in range(20)]
+burst = [os.urandom(n) for n in sizes]
+for d in burst:
+    s.sendto(d, addr)
+got = []
+try:
+    while len(got) < len(burst):
+        got.append(s.recvfrom(65535)[0])
+except socket.timeout:
+    pass
+if sorted(got) != sorted(burst):
+    sys.exit(f"a burst of {len(burst)} datagrams came back as {len(got)} with sizes {sorted(map(len, got))}")
+print("udp: ok (single datagrams up to 1472 bytes, and a burst of 20)")
+'
 
 # fetch_through_tunnelers waits up to a minute for the marker to come back.
 fetch_through_tunnelers() {

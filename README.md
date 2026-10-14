@@ -36,6 +36,8 @@ Every network's controller and routers must run OpenZiti **1.6.7 or later**. On 
 
 Earlier versions are not supported and are not expected to work reliably.
 
+TCP and UDP both work, including between tunnelers on either side. ziti-stitch passes each Ziti message on as one message, so UDP datagrams arrive whole. Tunnelers themselves (ziti-edge-tunnel 1.18) carry a datagram larger than one packet (1472 bytes at the usual 1500-byte MTU) as several, stitch or no stitch.
+
 ## Quick start
 
 Your network admins create the identities and policies. ziti-stitch needs no admin access: the identity on the ingress network needs Bind on the ingress service, and the one on the egress network needs Dial on the egress service.

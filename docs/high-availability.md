@@ -57,9 +57,15 @@ Do **not** use `precedence: required` to pick a primary. Precedence beats cost, 
 | An instance stops, restarts or crashes | Nothing. Its terminators go when its connections to the routers close, and new dials go to the others at once. Connections open through it end: at once on a crash, after up to 30 seconds of draining on a stop |
 | An instance cannot reach the egress service | A failed dial, then the others take over: that instance lowers its own precedence to `failed` on its first failure, and raises it again once the egress service answers (it checks every 1 to 30 seconds). The change takes a moment to reach the controller, so under heavy traffic the dials arriving in that moment fail too |
 | Every instance cannot reach the egress service | Dials fail with a generic error until the egress service is back. A failed instance is still used when there is nothing better |
-| An instance hangs, or its machine drops off the network | With equal costs or a gap of 10 or less: about every half minute, one dial takes 5 seconds longer, while the router waits for the instance before the controller retries elsewhere. With a larger gap or `required`: failed dials, see above |
+| An instance hangs, or its machine drops off the network | With equal costs or a gap of 10 or less: no failed dials, but every minute or two one dial takes 5 seconds longer, while the router waits for the instance before the controller retries elsewhere. With a larger gap or `required`: failed dials, see above |
 
-An instance that hangs or vanishes keeps its terminators until the router's connection to it closes. A router (as of OpenZiti 2.0) does not check that the SDKs hosting services on it are still answering, so that takes as long as TCP does to give up on the connection: a few minutes when it is idle, longer when the router has data waiting to go to it, and never if the process is frozen but its machine is up. Until then the controller keeps the terminator, and it is dynamic cost that steers dials away from it.
+An instance that hangs or vanishes keeps its terminators until the router's connection to it closes. A router (as of OpenZiti 2.0) does not check that the SDKs hosting services on it are still answering, so that takes as long as TCP does to give up on the connection, with Linux's defaults on the router's machine:
+
+- **No traffic:** about 2.5 minutes, the router's TCP keepalive (15 seconds, then 9 probes 15 seconds apart). Measured: 157 seconds.
+- **Traffic flowing:** about 15 minutes. Dials the router sends to the lost instance go unacknowledged, and TCP retransmits them until it gives up (`net.ipv4.tcp_retries2`, 15 by default). Measured: 964 seconds, during which a client dialing every 2 seconds saw 487 dials succeed, none fail, and 9 take 5 seconds.
+- **The process frozen but its machine up:** never; the machine's TCP keeps answering.
+
+Until then the controller keeps the terminator, and it is dynamic cost that steers dials away from it. A router's admin can shorten the traffic case by lowering `net.ipv4.tcp_retries2` on the router's machine (8 gives about 100 seconds), at the cost of dropping connections sooner on lossy links.
 
 ## Upgrades and maintenance
 
@@ -79,4 +85,4 @@ A terminator at precedence `failed` belongs to an instance that cannot reach the
 
 ## Where to run instances
 
-Each stitch adds a second trip across a Ziti network: client to instance on the ingress side, instance to service on the egress side. Run instances close to edge routers of both networks, and run them on different machines, ideally in different failure domains (racks, zones, sites), so that one outage does not take them all.
+Each stitch adds a second trip across a Ziti network: client to instance on the ingress side, instance to service on the egress side. As a rough guide from a single-machine test (both networks, the stitch and the endpoints on one host): a stitch kept 80 to 90% of the bulk throughput of a direct connection, and added about 1.7 ms to setting up each connection, for the egress dial it makes before accepting. Real numbers depend on the routers and the links between them. Run instances close to edge routers of both networks, and run them on different machines, ideally in different failure domains (racks, zones, sites), so that one outage does not take them all.
