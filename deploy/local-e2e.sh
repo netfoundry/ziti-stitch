@@ -113,6 +113,17 @@ create_identity() {
   rm -f "$RUN_DIR/$net/$name.jwt"
 }
 
+# create_tunneler_identity is create_identity, enrolled by ziti-edge-tunnel the
+# way its users enroll. Its OIDC login mishandles the "pem:" CA bundle that
+# ziti edge enroll writes.
+create_tunneler_identity() {
+  local net=$1 name=$2 attr=$3
+  zt "$net" create identity "$name" -a "$attr" -o "$RUN_DIR/$net/$name.jwt" >/dev/null
+  "$ZET" enroll -j "$RUN_DIR/$net/$name.jwt" -i "$RUN_DIR/$net/$name.json" >/dev/null 2>&1 ||
+    die "enrolling $name on $net with ziti-edge-tunnel failed"
+  rm -f "$RUN_DIR/$net/$name.jwt"
+}
+
 up() {
   need jq; need curl
   resolve_ziti
@@ -179,11 +190,11 @@ EOF
 
 # ziti-edge-tunnel for the tunnelers test. Its releases carry no checksums,
 # so the expected ones are pinned here.
-ZET_VERSION=1.18.7.2
+ZET_VERSION=1.18.7
 zet_sha256() {
   case "$1" in
-    x86_64) echo 40840bf4739a8303b5cbeb63e84bc16017b0b98f2ce816bc5af629e3df56adb9 ;;
-    arm64) echo 2b8c377ec457d0a8e97fd9ad6881e79e0325ed16a2143bd58a3039b591b91dc8 ;;
+    x86_64) echo 41d1d8fa65da4c2a3520139fe01ed35b48a8644149636023d16a1a720516dcfb ;;
+    arm64) echo 8f66ab27e39d1073dbdca6edbb57e924ef71856155ec9a7fb9b3c5a93c077862 ;;
   esac
 }
 
@@ -244,8 +255,8 @@ tunnelers() {
   zt b create config tunneled-udp-host host.v1 \
     "{\"protocol\":\"udp\",\"address\":\"127.0.0.1\",\"forwardPort\":true,\"allowedPortRanges\":[{\"low\":$udp_port,\"high\":$udp_port}]}" >/dev/null
   zt b create service tunneled-udp -a echo --configs tunneled-udp-host >/dev/null
-  create_identity a tunnel-client-a stitch-clients
-  create_identity b tunnel-host-b echo-hosts
+  create_tunneler_identity a tunnel-client-a stitch-clients
+  create_tunneler_identity b tunnel-host-b echo-hosts
 
   log "starting a web server, the hosting tunneler and ziti-stitch"
   mkdir -p "$www" && echo "$marker" >"$www/marker"
