@@ -4,10 +4,31 @@ Stitches services across independent [OpenZiti](https://openziti.io) networks.
 
 An identity on network A dials a service that `ziti-stitch` hosts. For each connection, `ziti-stitch` dials a matching service on network B with a second identity and splices the two together. It works with any number of networks and stitches, needs no admin access on any network, and runs as a system service on Linux, macOS and Windows.
 
-Status: early development. Enrolling, managing stitches, running, and running as a service on Linux, macOS and Windows work.
+```mermaid
+flowchart LR
+    client["client<br/>(e.g. a tunneler)"]
+    server["the real service"]
+    subgraph A ["network A"]
+        svcA(["billing-api"])
+    end
+    subgraph Z ["ziti-stitch"]
+        idA["identity on A<br/>binds billing-api"]
+        idB["identity on B<br/>dials billing"]
+        idA <-- "one connection<br/>spliced to the other" --> idB
+    end
+    subgraph B ["network B"]
+        svcB(["billing"])
+    end
+    client -- dials --> svcA --> idA
+    idB --> svcB --> server
+```
+
+Status: early, first released as v0.1.0. Feedback and issues are welcome.
 
 - [Installing and running as a service](docs/install.md)
 - [What to ask your network admins for](docs/admin-checklist.md)
+- [The web UI](docs/web-ui.md)
+- [High availability](docs/high-availability.md)
 
 ## Requirements
 
@@ -43,6 +64,8 @@ While `run` is up, changes made with the CLI (or by hand) are applied on their o
 | `service install \| uninstall \| start \| stop \| restart \| status` | see [docs/install.md](docs/install.md) |
 
 ## Web UI
+
+![The web UI's overview: two stitches listening, open connections, and both networks ready](docs/images/web-ui-overview.png)
 
 Optional, and off until you turn it on in `config.yaml`, on loopback, as a Ziti service, or both:
 
