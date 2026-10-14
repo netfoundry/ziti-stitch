@@ -76,6 +76,7 @@ jobs:
           name: e2e-logs-${{ matrix.ziti }}
           path: .local-e2e/*.log
           retention-days: 7
+          include-hidden-files: true # the harness writes under .local-e2e
       - name: stop both networks
         if: always()
         run: ./deploy/local-e2e.sh down
@@ -95,6 +96,15 @@ jobs:
           ZITI_VERSION: "2.0.8"
       - name: client and host ziti-edge-tunnel through a stitch
         run: ./deploy/local-e2e.sh tunnelers
+      - name: show the tunnelers' logs
+        if: failure()
+        run: |
+          for f in .local-e2e/tunnel-*.log; do
+            echo "::group::$f"
+            tail -n 80 "$f"
+            echo "::endgroup::"
+          done
+          ip addr; ip route; resolvectl status || true
       - name: keep the logs
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -102,6 +112,7 @@ jobs:
           name: tunnelers-logs
           path: .local-e2e/*.log
           retention-days: 7
+          include-hidden-files: true # the harness writes under .local-e2e
       - name: stop everything
         if: always()
         run: ./deploy/local-e2e.sh down
