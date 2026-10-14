@@ -35,6 +35,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,6 +90,7 @@ type Server struct {
 	lastZiti      atomic.Pointer[config.WebZiti]
 	probe         func(name, path string) diagnose.NetworkReport
 	tests         networkTests
+	managedIn     string // config.EnvConfigSource: the stitches cannot be edited here
 	now           func() time.Time
 }
 
@@ -116,6 +118,7 @@ func New(o Options) (*Server, error) {
 		zitiHosts:     map[string]bool{},
 		probe:         diagnose.Probe,
 		now:           time.Now,
+		managedIn:     os.Getenv(config.EnvConfigSource),
 	}
 	if o.Web.Listen != "" {
 		_, port, err := net.SplitHostPort(o.Web.Listen)
@@ -301,10 +304,14 @@ func (s *Server) page(min access, next pageHandler) http.HandlerFunc {
 			http.Error(w, "sign in first", http.StatusUnauthorized)
 			return
 		}
-		v := &view{CSRF: a.sess.CSRF, SignedIn: true, CanEdit: a.access == accessEdit, CanSignOut: a.link,
-			Who: a.who, Theme: themeFrom(r), Version: s.version}
+		v := &view{CSRF: a.sess.CSRF, SignedIn: true, CanEdit: a.access == accessEdit && s.managedIn == "",
+			CanSignOut: a.link, Who: a.who, Theme: themeFrom(r), Version: s.version, ManagedIn: s.managedIn}
 		if a.access < min {
 			s.renderError(w, r, v, http.StatusForbidden, "Your access is read-only.")
+			return
+		}
+		if min == accessEdit && s.managedIn != "" {
+			s.renderError(w, r, v, http.StatusForbidden, "The stitches are managed in "+s.managedIn+", not here; change them there.")
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -328,6 +335,7 @@ type view struct {
 	CanEdit    bool
 	CanSignOut bool   // a login link's session; a Ziti identity's cannot end
 	Who        string // who is signed in, for the topbar and the audit log
+	ManagedIn  string // where the stitches are managed, when not here (config.EnvConfigSource)
 	Version    string
 	Flash      string
 	Data       any

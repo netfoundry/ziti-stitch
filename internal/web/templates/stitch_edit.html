@@ -13,6 +13,7 @@
   </div>
   {{end}}
 </div>
+{{with $.ManagedIn}}{{template "managed-note" .}}{{end}}
 {{with .Status}}
 <div class="stats">
   <div class="stat"><div class="n"><span class="pill {{stateClass .State}}">{{.State}}</span></div><div class="l">since {{ago .Since}}</div></div>

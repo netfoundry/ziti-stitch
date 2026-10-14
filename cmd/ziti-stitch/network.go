@@ -318,6 +318,10 @@ func newNetworkRenameCmd(configDir *string) *cobra.Command {
 			if err := checkNotWebNetwork(d, from); err != nil {
 				return err
 			}
+			// Renaming rewrites the stitches, which may be managed elsewhere.
+			if err := d.Editable(); err != nil {
+				return err
+			}
 			if _, err := os.Stat(old.IdentityFile + network.PendingSuffix); err == nil {
 				return fmt.Errorf("network %q is in the middle of a certificate renewal; try again once ziti-stitch has finished it", from)
 			}

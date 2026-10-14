@@ -3,6 +3,7 @@
 <div class="page-head">
   <div class="page-head-text"><h1>Stitches</h1><p class="muted">Each stitch binds a service on one network and dials a service on another for every connection.</p></div>
 </div>
+{{with $.ManagedIn}}{{template "managed-note" .}}{{end}}
 {{template "config-error" .}}
 <div class="card">
   {{if .Stitches}}

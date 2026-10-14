@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestWatchConfigDebouncesChanges(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var calls atomic.Int32
-	if err := watchConfig(ctx, dir, func() { calls.Add(1) }, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+	if err := watchConfig(ctx, dir, "", func() { calls.Add(1) }, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,5 +94,52 @@ func TestWatchConfigDebouncesChanges(t *testing.T) {
 	}
 	if n := calls.Load(); n != 2 {
 		t.Errorf("identity change: %d calls, want 2", n)
+	}
+}
+
+// A Kubernetes ConfigMap update writes a new timestamped directory and
+// swaps the ..data symlink to it; config.yaml itself is a symlink through
+// ..data whose name never changes.
+func TestWatchConfigSeesConfigMapUpdates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ConfigMap volumes are a Linux thing")
+	}
+	dir, src := t.TempDir(), t.TempDir()
+	version := func(name, content string) {
+		if err := os.Mkdir(filepath.Join(src, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(src, name, "stitches.yaml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	version("..2026_10_14_01", "stitches: []\n")
+	if err := os.Symlink("..2026_10_14_01", filepath.Join(src, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("..data/stitches.yaml", filepath.Join(src, "stitches.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	if err := watchConfig(ctx, dir, src, func() { calls.Add(1) }, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatal(err)
+	}
+
+	version("..2026_10_14_02", "stitches: [] # changed\n")
+	if err := os.Symlink("..2026_10_14_02", filepath.Join(src, "..data_tmp")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(src, "..data_tmp"), filepath.Join(src, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if calls.Load() == 0 {
+		t.Error("a ConfigMap-style update did not trigger a reload")
 	}
 }

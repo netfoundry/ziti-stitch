@@ -426,3 +426,41 @@ func TestWebSameListeners(t *testing.T) {
 		t.Error("two empty configs differ")
 	}
 }
+
+func TestConfigSource(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"networks/acme.json": "{}", "networks/partner.json": "{}",
+		StitchesFileName: "stitches:\n  - name: local\n    from: {network: acme, service: a}\n    to: {network: partner, service: b}\n",
+	})
+	src := writeDir(t, map[string]string{
+		ConfigFileName:   "log:\n  level: debug\n",
+		StitchesFileName: "stitches:\n  - name: managed\n    from: {network: acme, service: a}\n    to: {network: partner, service: b}\n",
+	})
+	t.Setenv(EnvConfigSource, src)
+
+	d, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Config.Log.Level != "debug" || len(d.Stitches) != 1 || d.Stitches[0].Name != "managed" || len(d.Networks) != 2 {
+		t.Errorf("read %+v; want config and stitches from the source, networks from the config dir", d)
+	}
+	if err := d.Edit(func(*Dir) error { return nil }); err == nil || !strings.Contains(err.Error(), src) {
+		t.Errorf("Edit = %v, want it refused, naming the source", err)
+	}
+	if err := d.SaveStitches(); err == nil {
+		t.Error("SaveStitches wrote over a managed config")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, StitchesFileName)); !strings.Contains(string(b), "local") {
+		t.Error("the config directory's own stitches.yaml was changed")
+	}
+}
+
+func TestHealthListen(t *testing.T) {
+	for listen, ok := range map[string]bool{":8081": true, "0.0.0.0:8081": true, "8081": false, ":0x1": false, ":70000": false} {
+		_, err := Load(writeDir(t, map[string]string{ConfigFileName: "health:\n  listen: \"" + listen + "\"\n"}))
+		if (err == nil) != ok {
+			t.Errorf("health.listen %q: err = %v, want ok = %v", listen, err, ok)
+		}
+	}
+}

@@ -75,6 +75,9 @@ func (d *Dir) StitchesUsing(name string) []string {
 // stitches. Nothing is saved unless the result is valid, so a config that
 // was already invalid can be repaired this way but never saved broken.
 func (d *Dir) Edit(change func(d *Dir) error) error {
+	if err := d.Editable(); err != nil {
+		return err
+	}
 	if err := change(d); err != nil {
 		return err
 	}
@@ -84,10 +87,22 @@ func (d *Dir) Edit(change func(d *Dir) error) error {
 	return d.SaveStitches()
 }
 
+// Editable reports an error when the stitches are managed outside the
+// config directory (EnvConfigSource), where ziti-stitch cannot change them.
+func (d *Dir) Editable() error {
+	if d.Source != "" {
+		return fmt.Errorf("the stitches are managed in %s (%s), not here; change them there", d.Source, EnvConfigSource)
+	}
+	return nil
+}
+
 // SaveStitches writes d.Stitches to stitches.yaml. Values equal to their
 // defaults are left out, so the file stays as short as a hand-written one.
 // Comments in the existing file are not kept.
 func (d *Dir) SaveStitches() error {
+	if err := d.Editable(); err != nil {
+		return err
+	}
 	sf := stitchesFile{Stitches: make([]Stitch, len(d.Stitches))}
 	for i, s := range d.Stitches {
 		sf.Stitches[i] = compact(s)

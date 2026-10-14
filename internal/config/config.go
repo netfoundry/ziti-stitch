@@ -68,8 +68,18 @@ const (
 
 // Config is the content of config.yaml.
 type Config struct {
-	Log Log `yaml:"log"`
-	Web Web `yaml:"web"`
+	Log    Log    `yaml:"log"`
+	Web    Web    `yaml:"web"`
+	Health Health `yaml:"health"`
+}
+
+// Health configures the optional probe endpoint (/healthz, /readyz), for
+// Kubernetes and the like. Unlike the web UI it may listen on any
+// interface: it answers with counts only.
+type Health struct {
+	// Listen is a host:port (":8081" for every interface); empty turns
+	// it off.
+	Listen string `yaml:"listen,omitempty"`
 }
 
 // Web configures the web UI. Either listener, both or neither may be on.
@@ -158,7 +168,10 @@ type Network struct {
 
 // Dir is a loaded, defaulted and validated config directory.
 type Dir struct {
-	Path     string
+	Path string
+	// Source is where config.yaml and stitches.yaml came from when that
+	// is not Path: the read-only directory named by EnvConfigSource.
+	Source   string
 	Config   Config
 	Networks []Network // sorted by name
 	Stitches []Stitch
@@ -203,12 +216,16 @@ func Read(path string) (*Dir, error) {
 		return nil, fmt.Errorf("%s is not a directory", path)
 	}
 
-	d := &Dir{Path: path}
-	if err := decodeYAML(filepath.Join(path, ConfigFileName), &d.Config); err != nil {
+	d := &Dir{Path: path, Source: os.Getenv(EnvConfigSource)}
+	src := path
+	if d.Source != "" {
+		src = d.Source
+	}
+	if err := decodeYAML(filepath.Join(src, ConfigFileName), &d.Config); err != nil {
 		return nil, err
 	}
 	var sf stitchesFile
-	if err := decodeYAML(filepath.Join(path, StitchesFileName), &sf); err != nil {
+	if err := decodeYAML(filepath.Join(src, StitchesFileName), &sf); err != nil {
 		return nil, err
 	}
 	d.Stitches = sf.Stitches
@@ -309,6 +326,7 @@ func (d *Dir) Validate() error {
 	var p problems
 	d.validateLog(&p)
 	d.validateWeb(&p)
+	d.validateHealth(&p)
 	ingress := d.validateStitches(&p)
 	if z := d.Config.Web.Ziti; z != nil {
 		// One identity binding a service twice splits its dials between
@@ -341,6 +359,14 @@ func (d *Dir) validateLog(p *problems) {
 	case "text", "json":
 	default:
 		p.add("%s: log.format %q is not one of text, json", ConfigFileName, d.Config.Log.Format)
+	}
+}
+
+func (d *Dir) validateHealth(p *problems) {
+	if l := d.Config.Health.Listen; l != "" {
+		if _, port, err := net.SplitHostPort(l); err != nil || !validPort(port) {
+			p.add("%s: health.listen %q is not a host:port, e.g. :8081", ConfigFileName, l)
+		}
 	}
 }
 

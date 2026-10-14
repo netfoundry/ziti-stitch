@@ -25,6 +25,13 @@ import (
 // EnvConfigDir overrides the default config directory.
 const EnvConfigDir = "ZITI_STITCH_CONFIG_DIR"
 
+// EnvConfigSource names a read-only directory holding config.yaml and
+// stitches.yaml in place of the config directory's own: a mounted
+// Kubernetes ConfigMap, say. The config directory then keeps only the
+// identities and runtime state, and the stitches cannot be edited through
+// ziti-stitch.
+const EnvConfigSource = "ZITI_STITCH_CONFIG_SOURCE"
+
 const appDirName = "ziti-stitch"
 
 // DefaultDir returns $ZITI_STITCH_CONFIG_DIR if set. Otherwise it returns

@@ -25,6 +25,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -46,7 +47,7 @@ const drainTimeout = 30 * time.Second
 const eventsKept = 2000
 
 func newRunCmd(configDir *string) *cobra.Command {
-	var logFile string
+	var logFile, enrollDir string
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run every enabled stitch until stopped",
@@ -67,6 +68,15 @@ immediately.`,
 			dir, err := resolveConfigDir(*configDir)
 			if err != nil {
 				return err
+			}
+			if enrollDir != "" {
+				d, err := createDir(dir)
+				if err != nil {
+					return err
+				}
+				if err := enrollFrom(enrollDir, d, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
 			}
 			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 				return fmt.Errorf("no config directory at %s; start with: ziti-stitch enroll --jwt <file>", dir)
@@ -99,7 +109,7 @@ immediately.`,
 			// its own API, not signals.
 			if runtime.GOOS == "windows" && !service.Interactive() {
 				s, err := service.New(&program{run: func(ctx context.Context) {
-					run(ctx, func() {}, d, log, setLevel, rec)
+					run(ctx, func() {}, d, loadErr == nil, log, setLevel, rec)
 				}}, &service.Config{Name: serviceName})
 				if err != nil {
 					return err
@@ -108,11 +118,12 @@ immediately.`,
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			run(ctx, stop, d, log, setLevel, rec)
+			run(ctx, stop, d, loadErr == nil, log, setLevel, rec)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&logFile, "log-file", "", "log to this file, rotated at 10 MB with 5 kept, instead of stderr")
+	cmd.Flags().StringVar(&enrollDir, "enroll-from", "", "first add the networks in this directory that are not in the config yet: <network>.jwt is enrolled, <network>.json copied (for Kubernetes)")
 	return cmd
 }
 
@@ -125,14 +136,23 @@ func openLogFile(path string) (*lumberjack.Logger, error) {
 }
 
 // run applies d and keeps applying changes to it until ctx is done, then
-// shuts down. stopSignals is called once shutdown starts so that a second
-// interrupt gets the default behavior and kills the process.
-func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logger, setLevel func(string), rec *events.Recorder) {
+// shuts down. valid says whether d is the configuration on disk, or a
+// stand-in for one that did not load. stopSignals is called once shutdown
+// starts so that a second interrupt gets the default behavior and kills
+// the process.
+func run(ctx context.Context, stopSignals func(), d *config.Dir, valid bool, log *slog.Logger, setLevel func(string), rec *events.Recorder) {
 	r := runner.New(log)
 	r.Apply(d)
 	logRunning(log, d)
 	if d.Config.Web.Listen != "" || d.Config.Web.Ziti != nil {
 		startWeb(ctx, d, r, rec, log)
+	}
+	// Ready once a valid configuration runs; a later invalid change keeps
+	// the valid one running, so it stays ready.
+	var configOK atomic.Bool
+	configOK.Store(valid)
+	if l := d.Config.Health.Listen; l != "" {
+		startHealth(ctx, l, r, configOK.Load, log)
 	}
 
 	reload := make(chan struct{}, 1)
@@ -146,7 +166,7 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logge
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
-	if err := watchConfig(ctx, d.Path, requestReload, log); err != nil {
+	if err := watchConfig(ctx, d.Path, d.Source, requestReload, log); err != nil {
 		log.Warn("cannot watch the config directory; send SIGHUP to apply changes", "error", err)
 	}
 
@@ -163,9 +183,9 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, log *slog.Logge
 			log.Info("stopped")
 			return
 		case <-hup:
-			d = reloadConfig(d, r, log, setLevel)
+			d = reloadConfig(d, r, log, setLevel, &configOK)
 		case <-reload:
-			d = reloadConfig(d, r, log, setLevel)
+			d = reloadConfig(d, r, log, setLevel, &configOK)
 		}
 	}
 }
@@ -188,21 +208,26 @@ func logRunning(log *slog.Logger, d *config.Dir) {
 			enabled++
 		}
 	}
-	log.Info("ziti-stitch running", "version", version, "config_dir", d.Path,
-		"stitches", enabled, "disabled_stitches", len(d.Stitches)-enabled)
+	attrs := []any{"version", version, "config_dir", d.Path, "stitches", enabled, "disabled_stitches", len(d.Stitches) - enabled}
+	if d.Source != "" {
+		attrs = append(attrs, "config_source", d.Source)
+	}
+	log.Info("ziti-stitch running", attrs...)
 	if enabled == 0 {
 		log.Warn("no enabled stitches; nothing to do until some are configured")
 	}
 }
 
-// reloadConfig reads the config again and applies it. An invalid config is
-// not applied; the running one stays. It returns the config now in force.
-func reloadConfig(cur *config.Dir, r *runner.Runner, log *slog.Logger, setLevel func(string)) *config.Dir {
+// reloadConfig reads the config again and applies it, and records in
+// configOK that a valid one runs. An invalid config is not applied; the
+// running one stays. It returns the config now in force.
+func reloadConfig(cur *config.Dir, r *runner.Runner, log *slog.Logger, setLevel func(string), configOK *atomic.Bool) *config.Dir {
 	d, err := config.Load(cur.Path)
 	if err != nil {
 		log.Error("configuration change not applied; still running the previous configuration", "error", err)
 		return cur
 	}
+	configOK.Store(true)
 	if d.Config.Log.Level != cur.Config.Log.Level {
 		setLevel(d.Config.Log.Level)
 		log.Info("log level changed", "level", d.Config.Log.Level)
@@ -214,6 +239,9 @@ func reloadConfig(cur *config.Dir, r *runner.Runner, log *slog.Logger, setLevel 
 		// Who may use the UI (web.ziti.allow, policy_access) applies at
 		// once; only where it listens needs a restart.
 		log.Warn("changes to where the web UI listens take effect after a restart")
+	}
+	if d.Config.Health.Listen != cur.Config.Health.Listen {
+		log.Warn("health.listen changes take effect after a restart")
 	}
 	if c := r.Apply(d); c != (runner.Changes{}) {
 		log.Info("configuration applied", "started", c.Started, "restarted", c.Restarted, "retuned", c.Retuned, "stopped", c.Stopped)

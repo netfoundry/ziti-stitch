@@ -27,7 +27,7 @@
       <option value="dark"{{if eq .Theme "dark"}} selected{{end}}>Dark</option>
     </select>
     {{if .SignedIn}}
-    <span class="who">{{.Who}}{{if not .CanEdit}} <span class="pill off">read-only</span>{{end}}</span>
+    <span class="who">{{.Who}}{{if .ManagedIn}} <span class="pill off">managed</span>{{else if not .CanEdit}} <span class="pill off">read-only</span>{{end}}</span>
     {{if .CanSignOut}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn small">Sign out</button></form>{{end}}
     {{end}}
   </div>
@@ -69,4 +69,5 @@
 {{/* The most recent problem, with how long ago it was. */}}
 {{define "problem"}}{{if .Err}}<div class="hint problem">{{ago .ErrAt}}: {{.Err}}</div>{{end}}{{end}}
 
+{{define "managed-note"}}<div class="flash">The stitches are managed in <code>{{.}}</code> (for example a Kubernetes ConfigMap), so they cannot be changed here. Change them there; ziti-stitch applies the change on its own.</div>{{end}}
 {{define "config-error"}}{{if .ConfigErr}}<div class="flash err"><strong>The configuration on disk is not valid</strong>, so the last valid one is still running. Fix it here or in the files:<pre class="flush-bottom">{{.ConfigErr}}</pre></div>{{end}}{{end}}

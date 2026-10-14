@@ -751,3 +751,28 @@ func TestPostWithoutSessionIsRefusedEvenWithEmptyToken(t *testing.T) {
 		t.Fatal("changed without a CSRF token")
 	}
 }
+
+// With the stitches managed elsewhere (a ConfigMap), the UI shows them and
+// says where they are managed, but offers no edits and refuses them.
+func TestManagedStitchesAreReadOnly(t *testing.T) {
+	e := newEnv(t)
+	src := t.TempDir()
+	for _, f := range []string{config.ConfigFileName, config.StitchesFileName} {
+		if b, err := os.ReadFile(filepath.Join(e.dir, f)); err == nil {
+			if err := os.WriteFile(filepath.Join(src, f), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Setenv(config.EnvConfigSource, src)
+	e.srv.managedIn = src
+	e.signIn()
+
+	b := body(e.get("/stitches"))
+	if !strings.Contains(b, "managed in <code>"+src) || strings.Contains(b, "Add a stitch") || !strings.Contains(b, ">managed<") {
+		t.Errorf("stitches page for managed stitches:\n%s", b)
+	}
+	if w := e.post("/stitches/billing/disable", nil); w.Code != http.StatusForbidden {
+		t.Errorf("disabling a managed stitch: %d, want 403", w.Code)
+	}
+}

@@ -34,11 +34,15 @@ const reloadDebounce = 500 * time.Millisecond
 
 // watchConfig calls changed, once things have been quiet for
 // reloadDebounce, whenever a file ziti-stitch reads from dir is written,
-// created, removed or renamed. It watches until ctx is done.
+// created, removed or renamed, and on any change at all in source, the
+// directory config.yaml and stitches.yaml come from when it is not dir
+// (config.EnvConfigSource; "" for none). A Kubernetes ConfigMap changes by
+// swapping a hidden ..data symlink rather than the files' names, so every
+// change there counts. It watches until ctx is done.
 //
 // Our own writes to identity files (renewal, controller lists) trigger it
 // too; reloading then finds nothing changed, which costs a config read.
-func watchConfig(ctx context.Context, dir string, changed func(), log *slog.Logger) error {
+func watchConfig(ctx context.Context, dir, source string, changed func(), log *slog.Logger) error {
 	dir = filepath.Clean(dir)
 	networks := filepath.Join(dir, config.NetworksDirName)
 	w, err := fsnotify.NewWatcher()
@@ -48,6 +52,13 @@ func watchConfig(ctx context.Context, dir string, changed func(), log *slog.Logg
 	if err := w.Add(dir); err != nil {
 		_ = w.Close()
 		return err
+	}
+	if source != "" {
+		source = filepath.Clean(source)
+		if err := w.Add(source); err != nil {
+			_ = w.Close()
+			return err
+		}
 	}
 	// It may not exist yet; it is added when it appears.
 	_ = w.Add(networks)
@@ -71,7 +82,7 @@ func watchConfig(ctx context.Context, dir string, changed func(), log *slog.Logg
 						log.Warn("cannot watch the networks directory; reload with SIGHUP after adding networks", "error", err)
 					}
 				}
-				if relevantPath(dir, ev.Name) {
+				if relevantPath(dir, ev.Name) || (source != "" && filepath.Dir(ev.Name) == source) {
 					timer.Reset(reloadDebounce)
 				}
 			case err, ok := <-w.Errors:
