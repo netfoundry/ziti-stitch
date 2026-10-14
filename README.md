@@ -31,6 +31,24 @@ Status: early, first released as v0.1.0. Feedback and issues are welcome.
 - [High availability](docs/high-availability.md)
 - [Running in Kubernetes](docs/kubernetes.md) (Helm chart and container image)
 
+## When to use it
+
+OpenZiti has no federation between networks: an identity on one network cannot be granted a service on another. There are two ways to connect clients on network A to a service on network B.
+
+**Give the clients identities on both networks.** Each client enrolls on B as well, and ziti-edge-tunnel and the SDKs run several identities side by side (each network's services need intercepts that don't overlap). B's admin then sees and controls every client in B's own policies, and traffic stays end-to-end encrypted from client to service. Choose this when B needs per-client control, or when nothing between the client and the service may see the traffic.
+
+**Stitch the networks.** The clients stay on A only, and ziti-stitch joins one service on A to one on B:
+
+- **The clients register with one controller.** A's endpoints never enroll on, or talk to, B.
+- **B manages one identity, not one per client.** B grants Dial on one service to the stitch's identity, a single front door to B's service. B never sees A's endpoints, and sees A's identities only if the stitch passes on who is calling (below).
+- **Each admin keeps control of their own network.** A's admin decides which of A's identities may dial the service; B's admin decides what the stitch may reach. Neither needs any access to the other's controller, and either side can end the arrangement alone by removing its own policy.
+- **Adding a stitch takes one command,** where an intermediate tunneler with an identity on each network needs intercept and host configs written by hand for every service. `ziti-stitch validate` checks the policies on both sides.
+
+What a stitch gives up:
+
+- **End-to-end encryption.** Each side's Ziti connection ends at ziti-stitch, so the traffic is decrypted there before it is sent on. It exists in plain form only in ziti-stitch's memory, a buffer at a time as it is copied across, and is never written to disk or logged (only byte counts are). Whoever controls the host could still read it, so run ziti-stitch where both sides trust it, or use TLS inside the connection (HTTPS, for example) to keep the traffic encrypted end to end.
+- **Per-client policy on B.** B's policies see only the stitch. With `app_data: annotate` (and OpenZiti 2.0 or later on A), ziti-stitch passes the caller's identity on A to the service on B, so the service itself can decide per caller ([details](docs/admin-checklist.md)), but B's Ziti policies cannot.
+
 ## Requirements
 
 Every network's controller and routers must run OpenZiti **1.6.7 or later**. On the ingress networks (where the clients are), **2.0 or later** also tells ziti-stitch who is calling: the caller's identity in logs and on the connections page, in `annotate` app data, and for the web UI's `allow` list. On 1.6 stitches work the same, without the caller's identity.
@@ -50,6 +68,8 @@ ziti-stitch stitch add billing --from acme:billing-api --to partner:billing
 ziti-stitch validate                               # checks every Bind and Dial the stitches need
 ziti-stitch run
 ```
+
+`acme` and `partner` are names for the networks inside ziti-stitch only; they need not match anything on the networks. `billing-api` and `billing` are the services' names on their networks.
 
 `validate` and `network test <name>` tell you which policy is missing, so you can ask for exactly that.
 
