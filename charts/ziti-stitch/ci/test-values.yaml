@@ -1,0 +1,12 @@
+# Values CI lints and renders the chart with (helm lint picks up ci/).
+config:
+  web:
+    listen: 127.0.0.1:8474
+stitches:
+  - name: billing
+    from: {network: acme, service: billing-api}
+    to: {network: partner, service: billing}
+    app_data: annotate
+enrollment:
+  secretName: ziti-stitch-enroll
+  networks: [acme, partner]

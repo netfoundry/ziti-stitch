@@ -34,6 +34,27 @@ archives:
       - docs/admin-checklist.md
       - docs/web-ui.md
       - docs/high-availability.md
+      - docs/kubernetes.md
+
+dockers_v2:
+  - id: ziti-stitch
+    ids: [ziti-stitch]
+    dockerfile: Dockerfile
+    images:
+      - ghcr.io/netfoundry/ziti-stitch
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: ziti-stitch
+      org.opencontainers.image.description: Stitches services across independent OpenZiti networks
+      org.opencontainers.image.source: https://github.com/netfoundry/ziti-stitch
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: Apache-2.0
 
 checksum:
   name_template: checksums.txt

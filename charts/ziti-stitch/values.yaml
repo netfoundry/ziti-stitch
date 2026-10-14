@@ -1,0 +1,72 @@
+# Each replica is a separate ziti-stitch instance with its own identities,
+# as high availability needs (docs/high-availability.md).
+replicaCount: 2
+
+image:
+  repository: ghcr.io/netfoundry/ziti-stitch
+  tag: ""  # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# config.yaml, rendered into a ConfigMap. Changes apply without a restart,
+# except where noted in the README. health.listen is set from health.port.
+config:
+  log:
+    level: info
+    format: json
+  # The web UI, reached with: kubectl port-forward pod/<pod> 8474
+  # web:
+  #   listen: 127.0.0.1:8474
+
+# stitches.yaml, rendered into the same ConfigMap and applied live.
+stitches: []
+#  - name: billing
+#    from: {network: acme, service: billing-api}
+#    to: {network: partner, service: billing}
+
+# Identities: each replica enrolls on its first start from a Secret you
+# create, with one key per replica and network:
+#   <fullname>-<ordinal>.<network>.jwt   a one-time enrollment token
+#   <fullname>-<ordinal>.<network>.json  or an identity already enrolled
+# e.g. ziti-stitch-0.acme.jwt, ziti-stitch-1.acme.jwt, ziti-stitch-0.partner.jwt
+# The enrolled identity and its renewed certificates live on the replica's
+# volume; the Secret is only read while a network is missing there.
+enrollment:
+  secretName: ""
+  networks: []  # e.g. [acme, partner]
+
+health:
+  port: 8081
+
+persistence:
+  size: 64Mi
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+
+# Shutdown drains open connections for up to 30s, then networks get 10s.
+terminationGracePeriodSeconds: 45
+
+resources: {}
+#  requests: {cpu: 50m, memory: 64Mi}
+#  limits: {memory: 256Mi}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+# Empty: replicas are spread across nodes where possible.
+affinity: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: ziti-stitch
+description: Stitches services across independent OpenZiti networks
+type: application
+# Both are set from the release tag when the chart is published.
+version: 0.0.0
+appVersion: 0.0.0
+home: https://github.com/netfoundry/ziti-stitch
+icon: https://raw.githubusercontent.com/netfoundry/ziti-stitch/main/internal/web/static/netfoundry-logo.svg
+sources:
+  - https://github.com/netfoundry/ziti-stitch
+keywords: [openziti, ziti, zero-trust]

@@ -1,0 +1,15 @@
+# Headless: gives the StatefulSet's pods stable names. ziti-stitch takes no
+# traffic through Kubernetes; clients reach it over Ziti.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ziti-stitch.fullname" . }}
+  labels:
+    {{- include "ziti-stitch.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "ziti-stitch.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: health
+      port: {{ .Values.health.port }}

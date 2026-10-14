@@ -1,0 +1,21 @@
+ziti-stitch is running as StatefulSet {{ include "ziti-stitch.fullname" . }} with {{ .Values.replicaCount }} replica(s).
+{{- if not .Values.enrollment.secretName }}
+
+No enrollment Secret is set (enrollment.secretName), so the replicas have no
+identities and will wait for networks. Create a Secret with one key per
+replica and network, e.g.:
+
+  kubectl create secret generic ziti-stitch-enroll \
+{{- range $i := until (int .Values.replicaCount) }}
+    --from-file={{ include "ziti-stitch.fullname" $ }}-{{ $i }}.<network>.jwt=<token file> \
+{{- end }}
+
+and set enrollment.secretName and enrollment.networks.
+{{- end }}
+
+Status:   kubectl logs {{ include "ziti-stitch.fullname" . }}-0
+Stitches: managed in values (stitches:); kubectl exec {{ include "ziti-stitch.fullname" . }}-0 -- ziti-stitch stitch list
+{{- if .Values.config.web }}
+Web UI:   kubectl port-forward pod/{{ include "ziti-stitch.fullname" . }}-0 8474
+          kubectl exec {{ include "ziti-stitch.fullname" . }}-0 -- ziti-stitch web login
+{{- end }}

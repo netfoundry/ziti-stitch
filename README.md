@@ -29,6 +29,7 @@ Status: early, first released as v0.1.0. Feedback and issues are welcome.
 - [What to ask your network admins for](docs/admin-checklist.md)
 - [The web UI](docs/web-ui.md)
 - [High availability](docs/high-availability.md)
+- [Running in Kubernetes](docs/kubernetes.md) (Helm chart and container image)
 
 ## Requirements
 
@@ -109,6 +110,8 @@ stitches:
 ```
 
 The stitch commands rewrite `stitches.yaml`; comments in it are not kept.
+
+With `ZITI_STITCH_CONFIG_SOURCE` set, `config.yaml` and `stitches.yaml` are read from that directory instead (for example a Kubernetes ConfigMap) and cannot be changed through ziti-stitch; the config directory then holds only identities and state. See [docs/kubernetes.md](docs/kubernetes.md).
 
 Without `--config-dir`, `$ZITI_STITCH_CONFIG_DIR` is used, else `/var/lib/ziti-stitch` (Linux, as root), `/Library/Application Support/ziti-stitch` (macOS, as root), `%ProgramData%\ziti-stitch` (Windows), or the user's config directory.
 

@@ -106,14 +106,24 @@ jobs:
         if: always()
         run: ./deploy/local-e2e.sh down
 
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: .github/scripts/install-helm.sh
+      - run: helm lint charts/ziti-stitch -f charts/ziti-stitch/ci/test-values.yaml --strict
+      - run: helm template ziti-stitch charts/ziti-stitch -f charts/ziti-stitch/ci/test-values.yaml >/dev/null
+
   release:
     name: release
     # Only for a version tag, and only once every other job has passed.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, build, windows, e2e, tunnelers]
+    needs: [check, build, windows, e2e, tunnelers, chart]
     runs-on: ubuntu-24.04
     permissions:
       contents: write # create the GitHub release and upload its files
+      packages: write # push the image and the chart to ghcr.io
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,10 +131,25 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: log in to ghcr.io
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: a builder for multi-platform images
+        run: docker buildx create --use --name multi
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser
           version: v2.18.2
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: .github/scripts/install-helm.sh
+      - name: publish the Helm chart
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          helm package charts/ziti-stitch --version "$version" --app-version "$version"
+          echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          helm push "ziti-stitch-$version.tgz" oci://ghcr.io/netfoundry/charts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
