@@ -262,7 +262,7 @@ tunnelers() {
   log "starting the client tunneler"
   # Root owns what it writes, so it gets its own copy of the identity.
   mkdir -p "$RUN_DIR/tunnel-client" && cp "$RUN_DIR/a/tunnel-client-a.json" "$RUN_DIR/tunnel-client/"
-  start_bg tunnel-client sudo -n "$ZET" run -i "$RUN_DIR/tunnel-client/tunnel-client-a.json"
+  start_client_tunneler || die "the client tunneler could not log in; see $RUN_DIR/tunnel-client*.log"
 
   fetch_through_tunnelers "$ip" "$port" "$marker" || die "no answer through the tunnelers (passthrough); see $RUN_DIR/tunnel-*.log"
   echo "passthrough: ok"
@@ -327,6 +327,30 @@ if sorted(got) != sorted(burst):
     sys.exit(f"a burst of {len(burst)} datagrams came back as {len(got)} with sizes {sorted(map(len, got))}")
 print("udp: ok (single datagrams up to 1472 bytes, and a burst of 20)")
 '
+
+# start_client_tunneler starts the client ziti-edge-tunnel and waits for it
+# to log in, restarting it if it fails. ziti-edge-tunnel (1.18) sometimes
+# loses its first controller request while it takes over the machine's
+# DNS (systemd-resolved, as on GitHub's Ubuntu runners), logs "failed to
+# authenticate" and never retries.
+start_client_tunneler() {
+  local attempt i
+  for attempt in 1 2 3; do
+    start_bg tunnel-client sudo -n "$ZET" run -i "$RUN_DIR/tunnel-client/tunnel-client-a.json"
+    for ((i = 0; i < 30; i++)); do
+      # Not "version_pre_auth_cb() ... connected to controller", which comes
+      # before logging in.
+      grep -q "on_ziti_event() ziti_ctx.* connected to controller" "$RUN_DIR/tunnel-client.log" 2>/dev/null && return 0
+      grep -q "failed to authenticate" "$RUN_DIR/tunnel-client.log" 2>/dev/null && break
+      sleep 1
+    done
+    echo "client tunneler did not log in (attempt $attempt); restarting it"
+    sudo -n kill "$(cat "$RUN_DIR/tunnel-client.pid")" 2>/dev/null || true
+    sleep 2
+    mv "$RUN_DIR/tunnel-client.log" "$RUN_DIR/tunnel-client-attempt$attempt.log"
+  done
+  return 1
+}
 
 # fetch_through_tunnelers waits up to a minute for the marker to come back.
 fetch_through_tunnelers() {
