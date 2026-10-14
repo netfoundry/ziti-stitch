@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # sdk-golang and the rest; each update runs through CI like any change.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  # The actions are pinned by commit; this keeps the pins and their
+  # version comments current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  # The image's digest-pinned base.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
