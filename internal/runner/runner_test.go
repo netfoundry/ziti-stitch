@@ -96,10 +96,13 @@ func (f *fakeNetwork) Run(ctx context.Context) {
 
 // fakeStitch's connections finish when its drained channel is closed.
 type fakeStitch struct {
-	cfg     config.Stitch
-	rec     *recorder
-	drained chan struct{}
+	cfg       config.Stitch
+	rec       *recorder
+	drained   chan struct{}
+	drainOnce sync.Once
 }
+
+func (f *fakeStitch) finish() { f.drainOnce.Do(func() { close(f.drained) }) }
 
 func (f *fakeStitch) Run(ctx context.Context) {
 	f.rec.add("stitch start %s v=%d", f.cfg.Name, version(f.cfg))
@@ -116,6 +119,12 @@ func (f *fakeStitch) Retune(in config.Ingress) {
 func version(s config.Stitch) int { return int(s.IdleTimeout / time.Minute) }
 
 func (f *fakeStitch) Wait() { <-f.drained }
+
+func (f *fakeStitch) CloseConnections() int {
+	f.rec.add("stitch close %s v=%d", f.cfg.Name, version(f.cfg))
+	f.finish()
+	return 1
+}
 
 func (f *fakeStitch) Status() stitch.Status { return stitch.Status{Name: f.cfg.Name} }
 
@@ -168,7 +177,7 @@ func (h *harness) drain(name string, v int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	key := fmt.Sprintf("%s v=%d", name, v)
-	close(h.stitches[key][0].drained)
+	h.stitches[key][0].finish()
 	h.stitches[key] = h.stitches[key][1:]
 }
 
@@ -260,6 +269,31 @@ func TestRemovedNetworkStopsOnlyAfterItsConnectionsDrain(t *testing.T) {
 	h.rec.settle()
 	if h.rec.has("net stop a@a.json") {
 		t.Error("network a stopped although s1 still uses it")
+	}
+}
+
+// Stopping a stitch is meant to stop its traffic: a removed or disabled
+// one's connections are closed once the grace runs out. A changed one's
+// finish under the old settings, however long that takes.
+func TestStoppedStitchConnectionsAreClosedAfterTheGrace(t *testing.T) {
+	h := newHarness()
+	h.r.stopGrace = 50 * time.Millisecond
+	off := st("off", "a", "b", 0)
+	h.r.Apply(dir(abNets, off, st("changed", "a", "b", 0)))
+	h.rec.waitFor(t, "stitch start off v=0")
+	h.rec.waitFor(t, "stitch start changed v=0")
+
+	off.Disabled = true
+	if c := h.r.Apply(dir(abNets, off, st("changed", "a", "b", 1))); c != (Changes{Restarted: 1, Stopped: 1}) {
+		t.Errorf("changes = %+v", c)
+	}
+	h.rec.waitFor(t, "stitch close off v=0")
+	time.Sleep(3 * h.r.stopGrace)
+	if h.rec.has("stitch close changed v=0") {
+		t.Error("the changed stitch's old connections were closed")
+	}
+	if d := h.r.Snapshot().Draining; d != 1 {
+		t.Errorf("draining = %d, want only the changed stitch's old instance", d)
 	}
 }
 

@@ -71,12 +71,14 @@ type tracker struct {
 	closedIngr   int64
 	nextID       uint64
 	open         map[uint64]*liveConn
+	closing      bool // closeAll ran: close what opens from now on too
 }
 
 // liveConn is an open connection; splice counts into its byte counters.
 type liveConn struct {
 	info                ConnStatus
 	toEgress, toIngress atomic.Int64
+	close               func() // closes both sides
 }
 
 func (t *tracker) setState(s State) {
@@ -106,18 +108,38 @@ func (t *tracker) failedOne(err error) {
 	t.err, t.errAt = err.Error(), time.Now()
 }
 
-// opened registers an open connection and returns it with the id to close
-// it by.
-func (t *tracker) opened(info ConnStatus) (uint64, *liveConn) {
+// opened registers an open connection, which close closes, and returns it
+// with the id to report its end by. After closeAll it is closed at once.
+func (t *tracker) opened(info ConnStatus, close func()) (uint64, *liveConn) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if t.open == nil {
 		t.open = map[uint64]*liveConn{}
 	}
 	t.nextID++
-	c := &liveConn{info: info}
+	c := &liveConn{info: info, close: close}
 	t.open[t.nextID] = c
+	closing := t.closing
+	t.mu.Unlock()
+	if closing {
+		close()
+	}
 	return t.nextID, c
+}
+
+// closeAll closes every open connection, and any opened later, and
+// returns how many were open.
+func (t *tracker) closeAll() int {
+	t.mu.Lock()
+	t.closing = true
+	open := make([]*liveConn, 0, len(t.open))
+	for _, c := range t.open {
+		open = append(open, c)
+	}
+	t.mu.Unlock()
+	for _, c := range open {
+		c.close()
+	}
+	return len(open)
 }
 
 func (t *tracker) closed(id uint64) {

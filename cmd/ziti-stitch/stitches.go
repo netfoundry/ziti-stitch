@@ -31,6 +31,10 @@ import (
 // savedNote tells the user how a saved change reaches a running instance.
 const savedNote = "A running ziti-stitch applies the change on its own."
 
+// stoppedNote says what becomes of a removed or disabled stitch's open
+// connections.
+const stoppedNote = "Its open connections get 30 seconds to finish, then are closed."
+
 func newStitchCmd(configDir *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stitch",
@@ -181,7 +185,7 @@ func newStitchRemoveCmd(configDir *string) *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Removed stitch %q. Its open connections finish undisturbed.\n%s\n", name, savedNote)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Removed stitch %q. %s\n%s\n", name, stoppedNote, savedNote)
 			return err
 		},
 	}
@@ -208,7 +212,11 @@ func newStitchSetEnabledCmd(configDir *string, enable bool) *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s stitch %q.\n%s\n", done, name, savedNote)
+			msg := fmt.Sprintf("%s stitch %q.", done, name)
+			if !enable {
+				msg += " " + stoppedNote
+			}
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n", msg, savedNote)
 			return err
 		},
 	}

@@ -45,6 +45,8 @@ type Stitch interface {
 	Run(ctx context.Context)
 	// Wait blocks until those connections have finished.
 	Wait()
+	// CloseConnections closes them, and returns how many were open.
+	CloseConnections() int
 	Status() stitch.Status
 	Connections() []stitch.ConnStatus
 	// Retune changes the stitch's terminator precedence and cost in
@@ -56,8 +58,11 @@ type Stitch interface {
 //
 // A stitch that is removed or changed stops accepting at once, and its
 // open connections drain in the background; a changed one is replaced
-// immediately. A network runs while any stitch uses it, draining ones
-// included, and stops once none does.
+// immediately. A removed (or disabled) one's connections get stopGrace to
+// finish, then are closed: stopping a stitch is meant to stop its traffic.
+// A changed one's finish under the old settings, however long they take.
+// A network runs while any stitch uses it, draining ones included, and
+// stops once none does.
 type Runner struct {
 	log        *slog.Logger
 	newNetwork func(name, path string) Network
@@ -73,7 +78,13 @@ type Runner struct {
 	drainingWG  sync.WaitGroup
 	netsRunning sync.WaitGroup
 	netStopWait time.Duration // see networkStopWait
+	stopGrace   time.Duration // see removedStitchGrace
 }
+
+// removedStitchGrace is how long a removed or disabled stitch's open
+// connections have to finish before they are closed: as long as a
+// shutdown gives them.
+const removedStitchGrace = 30 * time.Second
 
 // networkStopWait bounds how long Shutdown waits for networks to stop
 // after draining. A network in the middle of a certificate renewal
@@ -134,6 +145,7 @@ func newRunner(log *slog.Logger, newNetwork func(name, path string) Network, new
 		stitches:    map[string]*stitchEntry{},
 		draining:    map[*stitchEntry]bool{},
 		netStopWait: networkStopWait,
+		stopGrace:   removedStitchGrace,
 	}
 }
 
@@ -168,21 +180,19 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 		want, ok := desired[name]
 		switch {
 		case !ok:
-			r.log.Info("stitch removed or disabled; stopping it", "stitch", name)
+			r.log.Info("stitch removed or disabled; stopping it", "stitch", name, "grace", r.stopGrace)
 			c.Stopped++
+			r.stopStitch(e, r.stopGrace)
 		case e.from.id != ids[want.From.Network] || e.to.id != ids[want.To.Network] || !sameExceptTerms(want, e.cfg):
 			r.log.Info("stitch changed; restarting it", "stitch", name)
 			restarting[name] = true
+			r.stopStitch(e, 0)
 		case want != e.cfg:
 			// Only precedence or cost: no need to rebind and leave a gap.
 			e.st.Retune(want.From)
 			e.cfg = want
 			c.Retuned++
-			continue
-		default:
-			continue
 		}
-		r.stopStitch(e)
 	}
 
 	for _, n := range r.networks {
@@ -294,7 +304,7 @@ func (r *Runner) Snapshot() Snapshot {
 func (r *Runner) Shutdown(timeout time.Duration) bool {
 	r.mu.Lock()
 	for _, e := range r.stitches {
-		r.stopStitch(e)
+		r.stopStitch(e, 0) // the timeout below covers them
 	}
 	for _, n := range r.networks {
 		n.wanted = false
@@ -370,14 +380,28 @@ func (r *Runner) startStitch(cfg config.Stitch, from, to *netEntry) {
 }
 
 // stopStitch stops a stitch accepting and lets its connections drain in
-// the background, then releases its networks. The caller holds mu.
-func (r *Runner) stopStitch(e *stitchEntry) {
+// the background, for up to grace (0: no limit) before closing the rest,
+// then releases its networks. The caller holds mu.
+func (r *Runner) stopStitch(e *stitchEntry, grace time.Duration) {
 	delete(r.stitches, e.cfg.Name)
 	r.draining[e] = true
 	e.cancel()
 	r.drainingWG.Go(func() {
 		<-e.done
-		e.st.Wait()
+		drained := make(chan struct{})
+		go func() {
+			e.st.Wait()
+			close(drained)
+		}()
+		if grace > 0 {
+			select {
+			case <-drained:
+			case <-time.After(grace):
+				n := e.st.CloseConnections()
+				r.log.Info("closed the connections still open on a stopped stitch", "stitch", e.cfg.Name, "connections", n)
+			}
+		}
+		<-drained
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		delete(r.draining, e)

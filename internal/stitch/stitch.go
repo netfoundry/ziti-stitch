@@ -203,6 +203,13 @@ func (s *Stitch) Wait() {
 	s.conns.Wait()
 }
 
+// CloseConnections closes the stitch's open connections, and any that open
+// from now on, and returns how many were open. Call it after Run has
+// returned, to stop draining.
+func (s *Stitch) CloseConnections() int {
+	return s.track.closeAll()
+}
+
 func listenOptions(t terms) *ziti.ListenOptions {
 	opts := ziti.DefaultListenOptions()
 	// We answer each dial ourselves, after the egress dial: see handle.
@@ -335,6 +342,9 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		ACircuit:           in.GetCircuitId(),
 		BCircuit:           out.GetCircuitId(),
 		Opened:             start,
+	}, func() {
+		_ = in.Close()
+		_ = out.Close()
 	})
 	defer s.track.closed(id)
 	err = splice(in, out, s.cfg.IdleTimeout, &live.toEgress, &live.toIngress)

@@ -52,8 +52,8 @@ func TestTrackerCountsAndConnections(t *testing.T) {
 	tr.failedOne(errors.New("egress down"))
 
 	t0 := time.Now()
-	id1, c1 := tr.opened(ConnStatus{Stitch: "s", ACircuit: "a1", Opened: t0})
-	_, c2 := tr.opened(ConnStatus{Stitch: "s", ACircuit: "a2", Opened: t0.Add(time.Second)})
+	id1, c1 := tr.opened(ConnStatus{Stitch: "s", ACircuit: "a1", Opened: t0}, func() {})
+	_, c2 := tr.opened(ConnStatus{Stitch: "s", ACircuit: "a2", Opened: t0.Add(time.Second)}, func() {})
 	c1.toEgress.Add(10)
 	c1.toIngress.Add(20)
 	c2.toEgress.Add(1)
@@ -75,5 +75,24 @@ func TestTrackerCountsAndConnections(t *testing.T) {
 	st = tr.status()
 	if st.Active != 1 || st.BytesToEgress != 11 || st.BytesToIngress != 20 {
 		t.Errorf("after close: %+v (closed bytes must stay counted)", st)
+	}
+}
+
+// closeAll closes every open connection, and one that opens afterwards
+// (its egress dial was already under way) at once.
+func TestTrackerCloseAll(t *testing.T) {
+	var tr tracker
+	var closed []string
+	closer := func(name string) func() { return func() { closed = append(closed, name) } }
+	tr.opened(ConnStatus{ACircuit: "a1"}, closer("a1"))
+	id, _ := tr.opened(ConnStatus{ACircuit: "a2"}, closer("a2"))
+	tr.closed(id) // finished on its own
+
+	if n := tr.closeAll(); n != 1 || len(closed) != 1 || closed[0] != "a1" {
+		t.Errorf("closeAll = %d, closed %v; want 1, [a1]", n, closed)
+	}
+	tr.opened(ConnStatus{ACircuit: "a3"}, closer("a3"))
+	if len(closed) != 2 || closed[1] != "a3" {
+		t.Errorf("closed %v; a connection opened after closeAll stayed open", closed)
 	}
 }

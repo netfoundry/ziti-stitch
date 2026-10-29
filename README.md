@@ -73,7 +73,7 @@ ziti-stitch run
 
 `validate` and `network test <name>` tell you which policy is missing, so you can ask for exactly that.
 
-While `run` is up, changes made with the CLI (or by hand) are applied on their own. Stitches that did not change are not touched; removed or changed ones finish their open connections. A change to only a stitch's precedence or cost is applied to its terminators in place, without rebinding. An invalid change is logged and not applied.
+While `run` is up, changes made with the CLI (or by hand) are applied on their own. Stitches that did not change are not touched. A removed or disabled stitch gives its open connections 30 seconds to finish, then closes them; a changed one lets them finish under its old settings. A change to only a stitch's precedence or cost is applied to its terminators in place, without rebinding. An invalid change is logged and not applied.
 
 | Command | |
 |---|---|
