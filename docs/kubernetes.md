@@ -86,6 +86,15 @@ Each pod serves `/healthz` and `/readyz` on the health port (8081):
 
 The StatefulSet upgrades pods one at a time and waits for each to be ready before the next, so an upgrade (`helm upgrade` with a new version) never takes every instance down at once. A stopping pod stops taking new connections and drains open ones for up to 30 seconds. A pod whose stitches cannot bind (a missing Bind policy, say) never becomes ready, which also stops the rollout there.
 
+Pods are created and removed in parallel, not in order, so a replica that cannot become ready does not keep the others from starting.
+
+**Upgrading from chart 0.1.2 or earlier:** those versions created pods in order, and Kubernetes cannot change that on an existing StatefulSet, so `helm upgrade` fails with `spec.podManagementPolicy: Invalid value: "Parallel": field is immutable`. Delete the StatefulSet (named after the release) without its pods first; the pods and their volumes keep running, and the upgrade adopts them, and replaces them one at a time as usual if the new version changes them:
+
+```
+kubectl delete statefulset ziti-stitch --cascade=orphan
+helm upgrade ziti-stitch oci://ghcr.io/netfoundry/charts/ziti-stitch --version <version> -f values.yaml
+```
+
 ## Scaling
 
 - **Adding a replica:** add tokens for the new pod (`ziti-stitch-2.acme.jwt` and so on) to the Secret, then raise `replicaCount`.

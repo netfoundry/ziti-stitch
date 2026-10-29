@@ -7,6 +7,10 @@ metadata:
     {{- include "ziti-stitch.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  # Replicas are independent instances: one that cannot become ready (an
+  # expired token, a missing policy) must not keep the others from being
+  # created. Upgrades still go one pod at a time.
+  podManagementPolicy: Parallel
   serviceName: {{ $fullname }}
   selector:
     matchLabels:
