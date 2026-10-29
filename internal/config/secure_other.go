@@ -18,8 +18,38 @@
 
 package config
 
-// securePrivateDir is a no-op here: EnsureDir creates the directory with
-// mode 0700, and identity files are written 0600.
-func securePrivateDir(string) error {
+import (
+	"fmt"
+	"os"
+	"syscall"
+)
+
+// securePrivateDir takes write access to path away from group and others.
+// EnsureDir creates it with mode 0700, but a directory that already
+// existed keeps its mode, and anyone else who can write to it can swap
+// networks/ or web/ for their own (planting a login token, say). Read
+// access is left alone: what it shows is not secret, identity files being
+// 0600.
+//
+// Only a directory this process owns, or any as root, is changed. Another
+// user's directory is theirs to secure: a Kubernetes volume, for one, is
+// owned by root and writable by the pod's group or everyone, with no other
+// users to fear.
+func securePrivateDir(path string) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if fi.Mode().Perm()&0o022 == 0 {
+		return nil
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if euid := os.Geteuid(); !ok || (euid != 0 && uint64(st.Uid) != uint64(euid)) {
+		return nil
+	}
+	// fi.Mode keeps setgid and sticky, which Chmod applies too.
+	if err := os.Chmod(path, fi.Mode()&^0o022); err != nil {
+		return fmt.Errorf("restricting access to %s: %w", path, err)
+	}
 	return nil
 }

@@ -33,7 +33,7 @@ sudo ziti-stitch service install
 sudo ziti-stitch service start
 ```
 
-Running the CLI as root puts the config in `/var/lib/ziti-stitch`, which is where the service looks. Use `--config-dir` on every command (and on `service install`) to put it somewhere else.
+Running the CLI as root puts the config in `/var/lib/ziti-stitch`, which is where the service looks. Use `--config-dir` on every command (and on `service install`) to put it somewhere else. A config directory that ziti-stitch creates is private to its owner. If you made it yourself, ziti-stitch takes away write access for group and others the next time it enrolls or starts (as root, or as the directory's owner).
 
 - Logs: `journalctl -u ziti-stitch -f`
 - Status: `ziti-stitch service status`, or `systemctl status ziti-stitch`
