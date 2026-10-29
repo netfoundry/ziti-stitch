@@ -165,8 +165,11 @@ jobs:
         run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # BuildKit builds and pushes the image, so it is pinned like the
+      # actions; buildx would otherwise pull the moving buildx-stable-1 tag.
+      # Dependabot does not see it: bump it by hand.
       - name: a builder for multi-platform images
-        run: docker buildx create --use --name multi
+        run: docker buildx create --use --name multi --driver-opt image=moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
