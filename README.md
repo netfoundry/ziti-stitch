@@ -78,7 +78,7 @@ While `run` is up, changes made with the CLI (or by hand) are applied on their o
 | Command | |
 |---|---|
 | `enroll --jwt <file\|-> [--name]` | enroll from a one-time token |
-| `network add --identity <file> [--name]` | add an identity that is already enrolled |
+| `network add --identity <file> [--name]` | add an identity that is already enrolled (its key and certificate inline, as `ziti edge enroll` writes them) |
 | `network list \| remove \| rename \| test` | |
 | `stitch add \| list \| remove \| enable \| disable` | `stitch add --help` for app data, precedence, timeouts |
 | `validate [--offline]` | |

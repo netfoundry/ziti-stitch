@@ -79,6 +79,9 @@ func TestParseInfo(t *testing.T) {
 	if info.CertCommonName != "test" {
 		t.Errorf("common name = %q, want test", info.CertCommonName)
 	}
+	if !info.SelfContained {
+		t.Error("an identity holding everything inline is not self-contained")
+	}
 }
 
 func TestParseInfoCertByPath(t *testing.T) {
@@ -86,7 +89,7 @@ func TestParseInfoCertByPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.CertNotAfter.IsZero() || info.CertCommonName != "" || len(info.Controllers) != 1 {
+	if !info.CertNotAfter.IsZero() || info.CertCommonName != "" || len(info.Controllers) != 1 || info.SelfContained {
 		t.Errorf("info = %+v", info)
 	}
 }

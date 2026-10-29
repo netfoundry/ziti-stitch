@@ -71,8 +71,12 @@ func enrollFrom(dir string, d *config.Dir, out io.Writer) error {
 				return fmt.Errorf("enrolling network %q from %s: %w", name, path, err)
 			}
 		} else {
-			if _, err := network.ReadInfo(path); err != nil {
+			info, err := network.ReadInfo(path)
+			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
+			}
+			if !info.SelfContained {
+				return notSelfContained(path)
 			}
 			if raw, err = os.ReadFile(path); err != nil {
 				return err

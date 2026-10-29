@@ -184,6 +184,13 @@ func chooseName(d *config.Dir, name, controller string) (string, error) {
 	return name, nil
 }
 
+// notSelfContained is the error for an identity file that refers to its
+// key, certificate or CA elsewhere. ziti-stitch copies only the file, and
+// renewal writes a key inline, which would quietly replace an HSM's.
+func notSelfContained(path string) error {
+	return fmt.Errorf("%s keeps its key, certificate or CA outside the file (a path, or an HSM); ziti-stitch needs them inline (pem:). Enroll a new identity with ziti-stitch enroll instead", path)
+}
+
 // warnSameController warns when an existing network already talks to one
 // of these controllers. That can be deliberate (a second identity with
 // different permissions) but is usually a mistake.
@@ -242,6 +249,9 @@ func newNetworkAddCmd(configDir *string) *cobra.Command {
 			info, err := network.ReadInfo(identityPath)
 			if err != nil {
 				return fmt.Errorf("%s: %w", identityPath, err)
+			}
+			if !info.SelfContained {
+				return notSelfContained(identityPath)
 			}
 			d, unlock, err := lockDir(*configDir, true)
 			if err != nil {

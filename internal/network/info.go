@@ -44,6 +44,10 @@ type Info struct {
 	// keeps: for an identity enrolled with a one-time token, the
 	// identity's id. Empty when the certificate is referred to by path.
 	CertCommonName string
+	// SelfContained reports whether the file holds its key, certificate
+	// and CA inline (pem:), rather than referring to other files or an
+	// HSM. Only then is copying the file enough.
+	SelfContained bool
 }
 
 // ReadInfo reads the identity file at path.
@@ -63,7 +67,8 @@ func parseInfo(raw []byte) (Info, error) {
 	if cfg.ID.Key == "" || cfg.ID.Cert == "" {
 		return Info{}, errors.New("not an enrolled identity: no key or certificate")
 	}
-	var info Info
+	inline := func(v string) bool { return strings.HasPrefix(v, pemPrefix) }
+	info := Info{SelfContained: inline(cfg.ID.Key) && inline(cfg.ID.Cert) && (cfg.ID.CA == "" || inline(cfg.ID.CA))}
 	info.Controllers = append(info.Controllers, cfg.ZtAPIs...)
 	if cfg.ZtAPI != "" && !slices.Contains(info.Controllers, cfg.ZtAPI) {
 		info.Controllers = append(info.Controllers, cfg.ZtAPI)

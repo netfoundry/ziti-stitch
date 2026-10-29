@@ -22,7 +22,7 @@ Clients reach ziti-stitch over Ziti, never through Kubernetes, so the chart crea
      --from-file=ziti-stitch-1.partner.jwt=partner-1.jwt
    ```
 
-   An identity that is already enrolled works too, as `<pod>.<network>.json`.
+   An identity that is already enrolled works too, as `<pod>.<network>.json`, if it holds its key and certificate inline (as `ziti edge enroll` writes them).
 
 2. **Write the values:**
 

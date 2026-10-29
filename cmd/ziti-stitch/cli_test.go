@@ -131,6 +131,26 @@ func TestNetworkAddDerivesNameAndRefusesDuplicates(t *testing.T) {
 	}
 }
 
+// Only the identity file is copied, so it must hold its key inline.
+func TestNetworkAddRefusesAKeyKeptElsewhere(t *testing.T) {
+	path := identityFile(t, "https://ctrl.acme.example.com:1280", time.Now().AddDate(1, 0, 0))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = bytes.Replace(raw, []byte(`"key":"pem:KEY"`), []byte(`"key":"file:///home/me/acme.key"`), 1)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "cfg")
+	if _, _, err := cli(t, dir, "network", "add", "--identity", path); err == nil || !strings.Contains(err.Error(), "needs them inline") {
+		t.Errorf("err = %v, want needs them inline", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "networks", "acme.json")); err == nil {
+		t.Error("the identity was copied anyway")
+	}
+}
+
 func TestNetworkAddNeedsANameForIPControllers(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cfg")
 	id := identityFile(t, "https://10.1.2.3:1280", time.Now().AddDate(1, 0, 0))
