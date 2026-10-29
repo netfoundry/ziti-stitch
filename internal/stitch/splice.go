@@ -33,6 +33,10 @@ var copyBuffers = sync.Pool{New: func() any { b := make([]byte, copyBufferSize);
 // for the stitch's idle timeout.
 var errIdle = errors.New("idle timeout")
 
+// errClosed ends a direction whose source connection was closed outright,
+// which ends the other direction too; it is not a failure.
+var errClosed = errors.New("connection closed")
+
 // halfConn is a connection whose sending half can be closed on its own.
 // Ziti edge connections and *net.TCPConn both qualify.
 type halfConn interface {
@@ -46,10 +50,11 @@ type halfConn interface {
 //
 // When one side finishes sending (EOF), the other side's sending half is
 // closed so its far end sees EOF too, while the opposite direction keeps
-// going: request/response protocols that half-close work end to end. An
-// error in either direction closes both connections. With idle > 0, so
-// does no traffic in either direction for that long. Both connections are
-// closed when splice returns.
+// going: request/response protocols that half-close work end to end. A
+// Ziti connection closed outright rather than half-closed, or lost with
+// its router, closes both, as does an error in either direction. With
+// idle > 0, so does no traffic in either direction for that long. Both
+// connections are closed when splice returns.
 func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err error) {
 	var closeOnce sync.Once
 	closeBoth := func() {
@@ -87,15 +92,21 @@ func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err erro
 	errs := make(chan error, 2)
 	go func() { errs <- copyHalf(b, a, toB, &lastActive) }()
 	go func() { errs <- copyHalf(a, b, toA, &lastActive) }()
+	// Only the first error says why: closing both makes the other
+	// direction fail too.
+	var first error
 	for range 2 {
 		if e := <-errs; e != nil {
-			if err == nil {
-				err = e
+			if first == nil {
+				first = e
 			}
 			closeBoth() // unblocks the other direction
 		}
 	}
 	close(done)
+	if !errors.Is(first, errClosed) {
+		err = first
+	}
 
 	if idled.Load() {
 		err = errIdle
@@ -104,7 +115,8 @@ func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err erro
 }
 
 // copyHalf copies src to dst until src ends, then closes dst's sending
-// half. n and lastActive are updated as bytes move.
+// half, or returns errClosed if src was closed outright. n and lastActive
+// are updated as bytes move.
 func copyHalf(dst, src halfConn, n, lastActive *atomic.Int64) error {
 	bp := copyBuffers.Get().(*[]byte)
 	defer copyBuffers.Put(bp)
@@ -123,6 +135,13 @@ func copyHalf(dst, src halfConn, n, lastActive *atomic.Int64) error {
 			}
 		}
 		if errors.Is(rerr, io.EOF) {
+			// A Ziti connection reads EOF for a FIN, and also once it is
+			// closed: its far end closed it rather than half-closing, or
+			// its router went away. Nothing can reach it then, so a
+			// half-close would only leave dst waiting on a silent peer.
+			if c, ok := src.(interface{ IsClosed() bool }); ok && c.IsClosed() {
+				return errClosed
+			}
 			return dst.CloseWrite()
 		}
 		if rerr != nil {

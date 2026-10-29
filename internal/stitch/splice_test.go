@@ -216,3 +216,37 @@ func TestIdleCheckInterval(t *testing.T) {
 		}
 	}
 }
+
+// closedEdge is a Ziti connection after its far end closed it outright or
+// its router went away: the SDK has closed it, and Read reports EOF just
+// as for a half-close.
+type closedEdge struct {
+	net.Conn
+	closed atomic.Bool
+}
+
+func (c *closedEdge) Read([]byte) (int, error)  { return 0, io.EOF }
+func (c *closedEdge) Write([]byte) (int, error) { return 0, net.ErrClosed }
+func (c *closedEdge) CloseWrite() error         { return nil }
+func (c *closedEdge) Close() error              { c.closed.Store(true); return nil }
+func (c *closedEdge) IsClosed() bool            { return true }
+
+// A closed ingress connection ends the splice, even though the egress
+// peer neither writes nor closes: a half-close would wait on it forever.
+func TestSpliceClosedZitiConnEndsBoth(t *testing.T) {
+	in := &closedEdge{}
+	b, egressServer := tcpPair(t)
+	r := waitSplice(t, startSplice(in, b, 0))
+	if r.err != nil {
+		t.Errorf("splice error = %v, want none: the far end closing is not a failure", r.err)
+	}
+	if !in.closed.Load() {
+		t.Error("ingress connection not closed")
+	}
+	if err := egressServer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadAll(egressServer); err != nil {
+		t.Errorf("egress peer did not see the connection end: %v", err)
+	}
+}
