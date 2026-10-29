@@ -270,8 +270,10 @@ func (d *Dir) Network(name string) (Network, bool) {
 }
 
 // decodeYAML decodes the file at path into v, rejecting unknown fields so
-// that a typo is an error instead of a silently ignored setting. A missing
-// or empty file leaves v untouched.
+// that a typo is an error instead of a silently ignored setting, and a
+// second document (after ---) because it would be ignored too, and lost
+// when ziti-stitch next saves the file. A missing or empty file leaves v
+// untouched.
 func decodeYAML(path string, v any) error {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -284,10 +286,24 @@ func decodeYAML(path string, v any) error {
 
 	dec := yaml.NewDecoder(f)
 	dec.KnownFields(true)
-	if err := dec.Decode(v); err != nil && !errors.Is(err, io.EOF) {
+	if err := dec.Decode(v); errors.Is(err, io.EOF) {
+		return nil
+	} else if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
+	var extra yaml.Node
+	switch err := dec.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+	case err != nil:
+		return fmt.Errorf("%s: %w", path, err)
+	case !emptyDocument(&extra): // a stray trailing --- is harmless
+		return fmt.Errorf("%s: more than one YAML document (---); only the first would be read", path)
+	}
 	return nil
+}
+
+func emptyDocument(n *yaml.Node) bool {
+	return len(n.Content) == 1 && n.Content[0].Tag == "!!null"
 }
 
 func listNetworks(dir string) ([]Network, error) {

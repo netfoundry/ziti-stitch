@@ -178,6 +178,17 @@ stitches:
 	}
 }
 
+// A second document would be ignored, then dropped by the next save.
+func TestLoadRejectsASecondDocument(t *testing.T) {
+	stitch := "stitches:\n  - {name: s, from: {network: acme, service: a}, to: {network: partner, service: b}}\n"
+	if _, err := Load(writeDir(t, twoNetworks(stitch+"---\nstitches: []\n"))); err == nil || !strings.Contains(err.Error(), "more than one YAML document") {
+		t.Errorf("err = %v, want more than one YAML document", err)
+	}
+	if _, err := Load(writeDir(t, twoNetworks(stitch+"---\n"))); err != nil {
+		t.Errorf("a trailing --- with nothing after it: %v", err)
+	}
+}
+
 func TestLoadRejectsMissingDirectory(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Fatal("expected an error")
