@@ -127,8 +127,9 @@ type harness struct {
 	r   *Runner
 	rec *recorder
 
-	mu       sync.Mutex
-	stitches map[string][]*fakeStitch // instances by "name v", oldest first
+	mu          sync.Mutex
+	stitches    map[string][]*fakeStitch // instances by "name v", oldest first
+	commonNames map[string]string        // by identity file; see identity
 }
 
 func newHarness() *harness {
@@ -142,8 +143,23 @@ func newHarness() *harness {
 			h.stitches[key] = append(h.stitches[key], f)
 			h.mu.Unlock()
 			return f
+		},
+		func(path string) string {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			return h.commonNames[path]
 		})
 	return h
+}
+
+// enroll puts a different identity in the file at path.
+func (h *harness) enroll(path, commonName string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.commonNames == nil {
+		h.commonNames = map[string]string{}
+	}
+	h.commonNames[path] = commonName
 }
 
 // drain lets the connections of the oldest instance with that name and
@@ -440,5 +456,47 @@ func TestSameExceptTerms(t *testing.T) {
 	b.From.Service = "other"
 	if sameExceptTerms(a, b) {
 		t.Error("a different ingress service should count as a change")
+	}
+}
+
+// A network removed and enrolled again under the same name has a new
+// identity in the same file. It needs a new context even while a stitch on
+// the old one drains, and so do the stitches on it.
+func TestReenrolledNetworkGetsANewContext(t *testing.T) {
+	h := newHarness()
+	h.enroll("a.json", "id-1")
+	h.r.Apply(dir(abNets, st("s1", "a", "b", 0), st("s2", "a", "b", 0)))
+	h.rec.waitFor(t, "stitch start s1 v=0")
+	h.rec.waitFor(t, "stitch start s2 v=0")
+
+	// s1 removed, a enrolled again, all in one reload; s1 keeps draining.
+	h.enroll("a.json", "id-2")
+	c := h.r.Apply(dir(abNets, st("s2", "a", "b", 0)))
+	if c != (Changes{Restarted: 1, Stopped: 1}) {
+		t.Errorf("changes = %+v, want s2 restarted and s1 stopped", c)
+	}
+	h.rec.waitFor(t, "stitch stop s2 v=0")
+	h.rec.settle()
+	if n := h.rec.count("net start a@a.json"); n != 2 {
+		t.Fatalf("network a started %d times, want a second context for the new identity: %v", n, h.rec.events)
+	}
+	if n := h.rec.count("stitch start s2 v=0"); n != 2 {
+		t.Errorf("s2 started %d times, want it restarted on the new identity", n)
+	}
+	if h.rec.has("net stop a@a.json") {
+		t.Errorf("the old context stopped while s1 drains: %v", h.rec.events)
+	}
+
+	h.drain("s1", 0)
+	h.drain("s2", 0)
+	h.rec.waitFor(t, "net stop a@a.json")
+	h.rec.settle()
+	if n := h.rec.count("net stop a@a.json"); n != 1 {
+		t.Errorf("network a stopped %d times, want only the old context", n)
+	}
+
+	// A renewal keeps the common name, so nothing restarts.
+	if c := h.r.Apply(dir(abNets, st("s2", "a", "b", 0))); c != (Changes{}) {
+		t.Errorf("same identity, changes = %+v", c)
 	}
 }

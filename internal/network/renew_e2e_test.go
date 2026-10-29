@@ -122,6 +122,10 @@ func TestRenewInPlaceKeepsServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	before, err := ReadInfo(hostFile)
+	if err != nil {
+		t.Fatal(err)
+	}
 	n.fileMu.Lock()
 	err = n.renew(ctx, clt, *cur.Payload.Data.AuthenticatorID)
 	n.fileMu.Unlock()
@@ -153,6 +157,9 @@ func TestRenewInPlaceKeepsServing(t *testing.T) {
 
 	if err := probe(hostFile); err != nil {
 		t.Errorf("renewed identity file does not authenticate: %v", err)
+	}
+	if after, err := ReadInfo(hostFile); err != nil || after.CertCommonName != before.CertCommonName {
+		t.Errorf("renewed certificate's common name = %q (%v), want %q as before", after.CertCommonName, err, before.CertCommonName)
 	}
 	if err := probe(oldFile); err == nil {
 		t.Error("old certificate still authenticates")

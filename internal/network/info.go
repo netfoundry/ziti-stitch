@@ -40,6 +40,10 @@ type Info struct {
 	// CertNotAfter is when the certificate expires; zero when the file
 	// refers to its certificate by path rather than holding it inline.
 	CertNotAfter time.Time
+	// CertCommonName is the certificate's common name, which renewal
+	// keeps: for an identity enrolled with a one-time token, the
+	// identity's id. Empty when the certificate is referred to by path.
+	CertCommonName string
 }
 
 // ReadInfo reads the identity file at path.
@@ -77,6 +81,7 @@ func parseInfo(raw []byte) (Info, error) {
 			return Info{}, fmt.Errorf("identity certificate: %w", err)
 		}
 		info.CertNotAfter = cert.NotAfter
+		info.CertCommonName = cert.Subject.CommonName
 	}
 	return info, nil
 }

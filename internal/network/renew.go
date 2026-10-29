@@ -141,11 +141,22 @@ func (n *Network) renewIfNeeded(ctx context.Context, clt *ziti.CtrlClient) error
 // resolvePending settles it on the next check. A crash at any point leaves
 // a working file for connect to find.
 func (n *Network) renew(ctx context.Context, clt *ziti.CtrlClient, authenticatorID string) error {
+	// The controller signs the subject we ask for. Keep the current one:
+	// for an identity enrolled with a one-time token it is the identity's
+	// id, which tells a renewed identity from a different one in its file.
+	cur, err := liveIdentity(clt)
+	if err != nil {
+		return err
+	}
+	leaf, err := leafOf(cur.Cert())
+	if err != nil {
+		return err
+	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
 	}
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: n.name}}, key)
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: leaf.Subject.CommonName}}, key)
 	if err != nil {
 		return err
 	}

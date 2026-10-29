@@ -76,6 +76,9 @@ func TestParseInfo(t *testing.T) {
 	if !info.CertNotAfter.Equal(expiry) {
 		t.Errorf("expiry = %v, want %v", info.CertNotAfter, expiry)
 	}
+	if info.CertCommonName != "test" {
+		t.Errorf("common name = %q, want test", info.CertCommonName)
+	}
 }
 
 func TestParseInfoCertByPath(t *testing.T) {
@@ -83,7 +86,7 @@ func TestParseInfoCertByPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.CertNotAfter.IsZero() || len(info.Controllers) != 1 {
+	if !info.CertNotAfter.IsZero() || info.CertCommonName != "" || len(info.Controllers) != 1 {
 		t.Errorf("info = %+v", info)
 	}
 }

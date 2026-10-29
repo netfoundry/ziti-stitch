@@ -62,6 +62,7 @@ type Runner struct {
 	log        *slog.Logger
 	newNetwork func(name, path string) Network
 	newStitch  func(cfg config.Stitch, from, to Network) Stitch
+	commonName func(path string) string // see identity
 
 	mu       sync.Mutex
 	networks map[string]*netEntry    // by name; the current entry for each
@@ -83,13 +84,22 @@ type Runner struct {
 // settles it on the next start.
 const networkStopWait = 10 * time.Second
 
+// identity is what a network runs on: its identity file, and the
+// certificate's common name in it. Renewal keeps the name, so a different
+// one in the same file (the network removed and enrolled again, say) is a
+// different identity, which needs a network of its own.
+type identity struct {
+	path, commonName string
+}
+
 type netEntry struct {
-	name, path string
-	nw         Network
-	cancel     context.CancelFunc
-	users      int  // stitches using it, draining ones included
-	wanted     bool // the current config uses it
-	stopped    bool
+	name    string
+	id      identity
+	nw      Network
+	cancel  context.CancelFunc
+	users   int  // stitches using it, draining ones included
+	wanted  bool // the current config uses it
+	stopped bool
 }
 
 type stitchEntry struct {
@@ -104,14 +114,21 @@ type stitchEntry struct {
 func New(log *slog.Logger) *Runner {
 	return newRunner(log,
 		func(name, path string) Network { return network.New(name, path, log) },
-		func(cfg config.Stitch, from, to Network) Stitch { return stitch.New(cfg, from, to, log) })
+		func(cfg config.Stitch, from, to Network) Stitch { return stitch.New(cfg, from, to, log) },
+		func(path string) string {
+			// An unreadable file leaves the name empty; authenticating
+			// with it fails, and says why.
+			info, _ := network.ReadInfo(path)
+			return info.CertCommonName
+		})
 }
 
-func newRunner(log *slog.Logger, newNetwork func(name, path string) Network, newStitch func(cfg config.Stitch, from, to Network) Stitch) *Runner {
+func newRunner(log *slog.Logger, newNetwork func(name, path string) Network, newStitch func(cfg config.Stitch, from, to Network) Stitch, commonName func(path string) string) *Runner {
 	return &Runner{
 		log:         log,
 		newNetwork:  newNetwork,
 		newStitch:   newStitch,
+		commonName:  commonName,
 		networks:    map[string]*netEntry{},
 		live:        map[*netEntry]bool{},
 		stitches:    map[string]*stitchEntry{},
@@ -140,9 +157,9 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 			desired[s.Name] = s
 		}
 	}
-	paths := map[string]string{}
+	ids := map[string]identity{}
 	for _, n := range d.Networks {
-		paths[n.Name] = n.IdentityFile
+		ids[n.Name] = identity{n.IdentityFile, r.commonName(n.IdentityFile)}
 	}
 
 	var c Changes
@@ -153,7 +170,7 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 		case !ok:
 			r.log.Info("stitch removed or disabled; stopping it", "stitch", name)
 			c.Stopped++
-		case e.from.path != paths[want.From.Network] || e.to.path != paths[want.To.Network] || !sameExceptTerms(want, e.cfg):
+		case e.from.id != ids[want.From.Network] || e.to.id != ids[want.To.Network] || !sameExceptTerms(want, e.cfg):
 			r.log.Info("stitch changed; restarting it", "stitch", name)
 			restarting[name] = true
 		case want != e.cfg:
@@ -178,8 +195,8 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 	slices.Sort(names)
 	for _, name := range names {
 		want := desired[name]
-		from := r.network(want.From.Network, paths[want.From.Network])
-		to := r.network(want.To.Network, paths[want.To.Network])
+		from := r.network(want.From.Network, ids[want.From.Network])
+		to := r.network(want.To.Network, ids[want.To.Network])
 		from.wanted, to.wanted = true, true
 		if _, running := r.stitches[name]; running {
 			continue
@@ -193,7 +210,7 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 	}
 
 	if z := d.Config.Web.Ziti; z != nil {
-		r.network(z.Network, paths[z.Network]).wanted = true
+		r.network(z.Network, ids[z.Network]).wanted = true
 	}
 
 	for _, n := range r.networks {
@@ -317,12 +334,12 @@ func (r *Runner) Shutdown(timeout time.Duration) bool {
 }
 
 // network returns the running network called name, starting it if needed.
-// A network whose identity file moved is replaced; the old one keeps
+// A network whose identity moved or changed is replaced; the old one keeps
 // running until the stitches still using it have drained. The caller
 // holds mu.
-func (r *Runner) network(name, path string) *netEntry {
+func (r *Runner) network(name string, id identity) *netEntry {
 	if n, ok := r.networks[name]; ok {
-		if n.path == path {
+		if n.id == id {
 			return n
 		}
 		delete(r.networks, name) // retired; release stops it once unused
@@ -331,7 +348,7 @@ func (r *Runner) network(name, path string) *netEntry {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	n := &netEntry{name: name, path: path, nw: r.newNetwork(name, path), cancel: cancel}
+	n := &netEntry{name: name, id: id, nw: r.newNetwork(name, id.path), cancel: cancel}
 	r.networks[name] = n
 	r.live[n] = true
 	r.netsRunning.Go(func() { n.nw.Run(ctx) })
