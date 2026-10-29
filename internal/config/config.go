@@ -385,6 +385,13 @@ func (d *Dir) Validate() error {
 		if other, ok := ingress[key]; ok {
 			p.add("%s: web.ziti binds %s, which stitch %q also binds", ConfigFileName, key, other)
 		}
+		// Dialing it would put the UI in reach of everyone who can dial
+		// the stitch, on another network.
+		for _, s := range d.Stitches {
+			if !s.Disabled && endpointKey(s.To.Network, s.To.Service) == key {
+				p.add("%s: stitch %q dials %s, the web UI's own service (web.ziti in %s), which would let %s's dialers reach the UI", StitchesFileName, s.Name, key, ConfigFileName, s.From.Network)
+			}
+		}
 	}
 	if len(p) == 0 {
 		p = append(p, d.findCycles()...)

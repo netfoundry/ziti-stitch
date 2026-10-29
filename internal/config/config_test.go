@@ -418,6 +418,18 @@ func TestWebZitiServiceCannotBeAStitchIngress(t *testing.T) {
 	}
 }
 
+func TestWebZitiServiceCannotBeAStitchEgress(t *testing.T) {
+	files := map[string]string{
+		"networks/acme.json":    "{}",
+		"networks/partner.json": "{}",
+		ConfigFileName:          "web:\n  ziti:\n    network: partner\n    service: stitch-admin\n    hosts: [h]\n",
+		StitchesFileName:        "stitches:\n  - name: admin\n    from: {network: acme, service: admin}\n    to: {network: partner, service: stitch-admin}\n",
+	}
+	if _, err := Load(writeDir(t, files)); err == nil || !strings.Contains(err.Error(), `stitch "admin" dials partner:stitch-admin, the web UI's own service`) {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestWebSameListeners(t *testing.T) {
 	z := func(allow ...string) *WebZiti {
 		return &WebZiti{Network: "acme", Service: "s", Hosts: []string{"h"}, Allow: allow, PolicyAccess: AccessNone}
