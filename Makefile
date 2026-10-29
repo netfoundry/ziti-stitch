@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # -trimpath keeps the build machine's paths out of the binary.
 LDFLAGS := -trimpath -ldflags "-s -w -X main.version=$(VERSION)"
 STATICCHECK ?= honnef.co/go/tools/cmd/staticcheck@2026.2.2
-GOVULNCHECK ?= golang.org/x/vuln/cmd/govulncheck@v1.1.4
+GOVULNCHECK ?= golang.org/x/vuln/cmd/govulncheck@v1.9.0
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 GOFILES = $(shell find . -name '*.go' -not -path './.git/*')
 
