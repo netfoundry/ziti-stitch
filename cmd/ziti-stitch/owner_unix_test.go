@@ -48,3 +48,24 @@ func TestCheckOwnedBy(t *testing.T) {
 		t.Error("an unknown user was accepted")
 	}
 }
+
+func TestChownTo(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ziti-stitch.log"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Without root, only giving files to ourselves is allowed.
+	if err := chownTo(dir, me.Username); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkOwnedBy(dir, me.Username); err != nil {
+		t.Error(err)
+	}
+	if err := chownTo(dir, "no-such-user-zs"); err == nil {
+		t.Error("an unknown user was accepted")
+	}
+}

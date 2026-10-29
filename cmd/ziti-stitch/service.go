@@ -220,6 +220,12 @@ Logs: journalctl -u ziti-stitch on Linux; ` + macLogDir + `/ on macOS;
 				if err := os.MkdirAll(macLogDir, 0o750); err != nil {
 					return err
 				}
+				// The service writes its log there as that user.
+				if userName != "" {
+					if err := chownTo(macLogDir, userName); err != nil {
+						return err
+					}
+				}
 			}
 			warnAboutInstall(cmd.ErrOrStderr(), dir)
 

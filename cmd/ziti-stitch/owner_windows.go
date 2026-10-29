@@ -21,3 +21,6 @@ package main
 // checkOwnedBy has nothing to check on Windows: the service runs as
 // LocalSystem and --user is refused.
 func checkOwnedBy(string, string) error { return nil }
+
+// chownTo is not needed on Windows, for the same reason.
+func chownTo(string, string) error { return nil }

@@ -17,7 +17,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -134,5 +136,36 @@ func TestOpenLogFileCreatesItsDirectory(t *testing.T) {
 	}
 	if b, err := os.ReadFile(path); err != nil || string(b) != "hello\n" {
 		t.Errorf("log file = %q, %v", b, err)
+	}
+}
+
+func TestOpenLogFileRefusesOneItCannotWrite(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory this user cannot write to")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+	if _, err := openLogFile(filepath.Join(dir, "ziti-stitch.log")); err == nil || !strings.Contains(err.Error(), "cannot write the log file") {
+		t.Errorf("err = %v, want cannot write the log file", err)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+func TestFallbackWriterKeepsWhatTheLogFileCannotTake(t *testing.T) {
+	var fallback bytes.Buffer
+	w := &fallbackWriter{w: failingWriter{}, fallback: &fallback}
+	for _, line := range []string{"one\n", "two\n"} {
+		if n, err := w.Write([]byte(line)); err != nil || n != len(line) {
+			t.Errorf("Write(%q) = %d, %v", line, n, err)
+		}
+	}
+	if want := "cannot write the log file, so logging here: disk full\none\ntwo\n"; fallback.String() != want {
+		t.Errorf("fallback got %q, want %q", fallback.String(), want)
 	}
 }

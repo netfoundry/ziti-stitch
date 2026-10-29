@@ -97,7 +97,7 @@ immediately.`,
 					return err
 				}
 				defer lf.Close()
-				w = lf
+				w = &fallbackWriter{w: lf, fallback: cmd.ErrOrStderr()}
 			}
 			rec := events.NewRecorder(eventsKept)
 			log, setLevel := newLogger(d.Config.Log, w, rec)
@@ -127,12 +127,40 @@ immediately.`,
 	return cmd
 }
 
-// openLogFile returns a size-rotated log file at path.
+// openLogFile returns a size-rotated log file at path, once it is known
+// that the file can be written: lumberjack opens it only on the first
+// write, and a logger drops what it cannot write.
 func openLogFile(path string) (*lumberjack.Logger, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
 	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("cannot write the log file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
 	return &lumberjack.Logger{Filename: path, MaxSize: 10, MaxBackups: 5}, nil
+}
+
+// fallbackWriter writes to w, and what w cannot take to fallback, saying
+// why the first time: a logger drops lines it cannot write, so a log file
+// that fails later (a full disk, a rotation) would otherwise lose them.
+type fallbackWriter struct {
+	w, fallback io.Writer
+	failed      atomic.Bool
+}
+
+func (f *fallbackWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	if err == nil {
+		return n, nil
+	}
+	if !f.failed.Swap(true) {
+		fmt.Fprintf(f.fallback, "cannot write the log file, so logging here: %v\n", err)
+	}
+	return f.fallback.Write(p)
 }
 
 // run applies d and keeps applying changes to it until ctx is done, then

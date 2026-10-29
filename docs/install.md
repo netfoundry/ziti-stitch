@@ -60,7 +60,7 @@ sudo ziti-stitch service start
 ```
 
 - Config: `/Library/Application Support/ziti-stitch`
-- Logs: `/Library/Logs/ziti-stitch/ziti-stitch.log` (rotated at 10 MB, 5 kept), also visible in Console.app. `ziti-stitch.err.log` next to it catches anything printed before logging starts, such as a crash.
+- Logs: `/Library/Logs/ziti-stitch/ziti-stitch.log` (rotated at 10 MB, 5 kept), also visible in Console.app. `ziti-stitch.err.log` next to it catches anything printed before logging starts, such as a crash, and any line the log file could not take.
 - launchd restarts ziti-stitch if it exits and starts it at boot.
 
 ## Windows
