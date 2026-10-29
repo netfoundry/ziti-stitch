@@ -319,3 +319,22 @@ func TestWebLoginPrintsALinkPerListener(t *testing.T) {
 		t.Errorf("output:\n%s", out)
 	}
 }
+
+// web.ziti without hosts is invalid, but web login does not validate.
+func TestWebLoginWithoutZitiHosts(t *testing.T) {
+	dir := twoNetworkDir(t)
+	write := func(cfg string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(cfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("web:\n  ziti:\n    network: acme\n    service: stitch-admin\n")
+	if _, _, err := cli(t, dir, "web", "login"); err == nil || !strings.Contains(err.Error(), "no hosts") {
+		t.Errorf("Ziti only, no hosts: err = %v", err)
+	}
+	write("web:\n  listen: 127.0.0.1:8474\n  ziti:\n    network: acme\n    service: stitch-admin\n")
+	if out := mustCLI(t, dir, "web", "login"); !strings.Contains(out, "http://127.0.0.1:8474/login?t=") || strings.Contains(out, "over Ziti") {
+		t.Errorf("output:\n%s", out)
+	}
+}

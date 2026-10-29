@@ -54,6 +54,15 @@ A link works on either listener. Over Ziti, allowed identities need no link.`,
 			if w.Listen == "" && w.Ziti == nil {
 				return errors.New("the web UI is off: set web.listen (e.g. 127.0.0.1:8474) or web.ziti in config.yaml and restart ziti-stitch")
 			}
+			// The config is not validated here, and web.ziti without hosts
+			// is invalid.
+			var zitiHost string
+			if w.Ziti != nil && len(w.Ziti.Hosts) > 0 {
+				zitiHost = w.Ziti.Hosts[0]
+			}
+			if w.Listen == "" && zitiHost == "" {
+				return errors.New("web.ziti in config.yaml has no hosts, so there is no address to link to; run ziti-stitch validate")
+			}
 			token, err := web.NewLoginToken(d.Path)
 			if err != nil {
 				return err
@@ -62,8 +71,8 @@ A link works on either listener. Over Ziti, allowed identities need no link.`,
 			if w.Listen != "" {
 				fmt.Fprintf(out, "http://%s/login?t=%s\n", w.Listen, token)
 			}
-			if w.Ziti != nil {
-				fmt.Fprintf(out, "http://%s/login?t=%s   (over Ziti)\n", w.Ziti.Hosts[0], token)
+			if zitiHost != "" {
+				fmt.Fprintf(out, "http://%s/login?t=%s   (over Ziti)\n", zitiHost, token)
 			}
 			_, err = fmt.Fprintln(out, "The link works once, for five minutes.")
 			return err
