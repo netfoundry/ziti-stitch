@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
 )
@@ -57,8 +58,8 @@ type origin struct {
 //
 // For annotate it returns errTooManyHops when the connection looks like it
 // is looping, and another error when the ingress app data is not a JSON
-// object (which leaves nowhere to put the annotation); the caller decides
-// what to do about either.
+// object (which leaves nowhere to put the annotation, and no hop count to
+// read); the caller refuses the connection for either.
 func egressAppData(policy config.AppDataPolicy, in []byte, stitch string, o origin) ([]byte, error) {
 	switch policy {
 	case config.AppDataPassthrough:
@@ -83,6 +84,14 @@ func annotate(in []byte, stitch string, o origin) ([]byte, error) {
 		}
 		if doc == nil { // the JSON literal null
 			doc = map[string]json.RawMessage{}
+		}
+	}
+	// A JSON decoder may match a key that differs only in case or by a
+	// Unicode fold to ours (Go's matches "ziti_ſtitch"), so a dialer could
+	// otherwise pass off its own annotation as the one we add.
+	for k := range doc {
+		if k != annotationKey && strings.EqualFold(k, annotationKey) {
+			delete(doc, k)
 		}
 	}
 

@@ -97,6 +97,14 @@ func TestRefusedDialsAreClosed(t *testing.T) {
 			t.Errorf("refused with %v, closed %v; want %v and closed", in.refusedBy, in.closed.Load(), errLoopRefused)
 		}
 	})
+	t.Run("app data annotate cannot carry", func(t *testing.T) {
+		s := testStitch(config.AppDataAnnotate)
+		in := &ingressConn{appData: []byte(`{"ziti_stitch":{"dialer_identity_id":"ADMIN"}} x`)}
+		s.handle(in, nil, nil) // refused before the egress side is used
+		if in.refusedBy != errAppDataRefused || !in.closed.Load() {
+			t.Errorf("refused with %v, closed %v; want %v and closed", in.refusedBy, in.closed.Load(), errAppDataRefused)
+		}
+	})
 }
 
 // The probe dials with the app data of the last successful egress dial,

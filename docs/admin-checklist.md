@@ -54,7 +54,7 @@ ziti-stitch is a client here, like any SDK app dialing a service.
 
 Whoever hosts the real service needs no changes. If it is a tunneler that forwards to the address the client intercepted (`forwardAddress` etc. in `host.v1`), it relies on the client's app data, which ziti-stitch passes through unchanged by default.
 
-If the stitch is set to `annotate`, the app data also carries a `ziti_stitch` object naming the stitch and the original caller. Trust it only from a stitch you know annotates: with the default, passthrough, it is whatever the client sent.
+If the stitch is set to `annotate`, the app data also carries a `ziti_stitch` object naming the stitch and the original caller. ziti-stitch replaces any `ziti_stitch` object the client sent, and removes keys a JSON parser might take for it (differing only in case, for example); it refuses dials whose app data is not a JSON object. Trust the object only from a stitch you know annotates: with the default, passthrough, it is whatever the client sent.
 
 ## The web UI over Ziti
 

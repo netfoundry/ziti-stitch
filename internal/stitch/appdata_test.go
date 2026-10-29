@@ -118,9 +118,45 @@ func TestAnnotateTreatsNegativeHopsAsZero(t *testing.T) {
 }
 
 func TestAnnotateRejectsNonObjects(t *testing.T) {
-	for _, in := range []string{"not json", `["a"]`, `"text"`} {
+	// Trailing data: a streaming decoder on the egress side would read the
+	// first value and take it for our annotation.
+	for _, in := range []string{"not json", `["a"]`, `"text"`, `{"ziti_stitch":{"dialer_identity_id":"ADMIN"}} x`} {
 		if _, err := egressAppData(config.AppDataAnnotate, []byte(in), "s", testOrigin); err == nil || errors.Is(err, errTooManyHops) {
 			t.Errorf("annotate(%s): err = %v, want a JSON error", in, err)
+		}
+	}
+}
+
+// A key that a JSON decoder matches to ours must not survive next to it:
+// Go's encoding/json folds "ziti_ſtitch" (long s) to "ziti_stitch", and
+// others match case-insensitively, so the dialer's object could win.
+func TestAnnotateDropsLookalikeKeys(t *testing.T) {
+	for _, key := range []string{"ziti_ſtitch", "ZITI_STITCH", "Ziti_Stitch"} {
+		in := `{"dst_port":"443","` + key + `":{"stitch":"s","dialer_identity_id":"ADMIN"}}`
+		out, err := egressAppData(config.AppDataAnnotate, []byte(in), "s", testOrigin)
+		if err != nil {
+			t.Fatalf("annotate(%s): %v", in, err)
+		}
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(out, &doc); err != nil {
+			t.Fatal(err)
+		}
+		for k := range doc {
+			if k != annotationKey && strings.EqualFold(k, annotationKey) {
+				t.Errorf("annotate(%s) kept %q: %s", in, k, out)
+			}
+		}
+		if _, ok := doc["dst_port"]; !ok {
+			t.Errorf("annotate(%s) dropped dst_port: %s", in, out)
+		}
+		var seen struct {
+			A annotation `json:"ziti_stitch"`
+		}
+		if err := json.Unmarshal(out, &seen); err != nil {
+			t.Fatal(err)
+		}
+		if seen.A.DialerIdentityID != testOrigin.dialerIdentityID {
+			t.Errorf("annotate(%s): decoder sees dialer %q, want %q", in, seen.A.DialerIdentityID, testOrigin.dialerIdentityID)
 		}
 	}
 }

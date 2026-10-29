@@ -44,6 +44,7 @@ const RefusalPrefix = "ziti-stitch: "
 var (
 	errUpstreamUnavailable = errors.New(RefusalPrefix + "upstream service unavailable")
 	errLoopRefused         = errors.New(RefusalPrefix + "refused, the connection is looping between stitches")
+	errAppDataRefused      = errors.New(RefusalPrefix + "refused, app data must be a JSON object on this stitch")
 )
 
 const (
@@ -281,8 +282,12 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		return
 	}
 	if err != nil {
-		log.Warn("cannot annotate app data; forwarding it unchanged", "error", err)
-		appData = in.GetAppData()
+		// Forwarding it unannotated would let the dialer's bytes stand in
+		// for our annotation, and skip the hop count.
+		log.Warn("connection refused: cannot annotate its app data", "error", err)
+		refuse(in, errAppDataRefused)
+		s.track.failedOne(err)
+		return
 	}
 
 	out, err := zB.DialWithOptions(s.cfg.To.Service, &ziti.DialOptions{
