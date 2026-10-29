@@ -187,7 +187,11 @@ func (n *Network) renew(ctx context.Context, clt *ziti.CtrlClient, authenticator
 	if err != nil {
 		return err
 	}
-	if err := atomicfile.WriteFile(n.pendingPath(), updated, IdentityFilePerm); err != nil {
+	// Until it is verified the old certificate still works, so giving up
+	// here loses nothing.
+	if err := n.whileIdentityExists(func() error {
+		return atomicfile.WriteFile(n.pendingPath(), updated, IdentityFilePerm)
+	}); err != nil {
 		return fmt.Errorf("saving new certificate: %w", err)
 	}
 

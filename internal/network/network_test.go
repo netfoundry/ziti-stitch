@@ -21,17 +21,21 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	apis "github.com/openziti/sdk-golang/edge-apis"
 	"github.com/openziti/sdk-golang/ziti"
+
+	"github.com/netfoundry/ziti-stitch/internal/config"
 )
 
 const sampleIdentity = `{
@@ -149,7 +153,11 @@ func TestCredentialsNeedsKeyAndCert(t *testing.T) {
 
 func testNetwork(t *testing.T) *Network {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "acme.json")
+	dir := filepath.Join(t.TempDir(), "networks")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "acme.json")
 	if err := os.WriteFile(path, []byte(sampleIdentity), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +236,40 @@ func TestSaveControllerURLsUpdatesAPendingRenewal(t *testing.T) {
 		if b, _ := os.ReadFile(p); !strings.Contains(string(b), "https://moved:1280") {
 			t.Errorf("%s lacks the new controller list", filepath.Base(p))
 		}
+	}
+}
+
+// Identity files are written under the config directory's edit lock, and
+// not at all once the CLI has renamed or removed them.
+func TestWhileIdentityExists(t *testing.T) {
+	n := testNetwork(t)
+	unlock, err := config.Lock(filepath.Dir(filepath.Dir(n.path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wrote atomic.Bool
+	done := make(chan error, 1)
+	go func() { done <- n.whileIdentityExists(func() error { wrote.Store(true); return nil }) }()
+	time.Sleep(200 * time.Millisecond)
+	if wrote.Load() {
+		t.Fatal("wrote while the CLI held the lock")
+	}
+	unlock()
+	if err := <-done; err != nil || !wrote.Load() {
+		t.Fatalf("after the lock was released: err %v, wrote %v", err, wrote.Load())
+	}
+
+	if err := os.Remove(n.path); err != nil {
+		t.Fatal(err)
+	}
+	wrote.Store(false)
+	if err := n.whileIdentityExists(func() error { wrote.Store(true); return nil }); err == nil || wrote.Load() {
+		t.Errorf("identity file removed: err %v, wrote %v", err, wrote.Load())
+	}
+	u, _ := url.Parse("https://b:1280/edge/client/v1")
+	n.saveControllerURLs(n.urlsSeq.Add(1), []*url.URL{u})
+	if _, err := os.Stat(n.path); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a controller list save brought the removed identity file back: %v", err)
 	}
 }
 

@@ -23,9 +23,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +36,7 @@ import (
 	"github.com/openziti/sdk-golang/ziti"
 
 	"github.com/netfoundry/ziti-stitch/internal/atomicfile"
+	"github.com/netfoundry/ziti-stitch/internal/config"
 	"github.com/netfoundry/ziti-stitch/internal/retry"
 )
 
@@ -281,21 +284,47 @@ func (n *Network) saveControllerURLs(seq uint64, urls []*url.URL) {
 	if seq != n.urlsSeq.Load() {
 		return // a newer list arrived while this one waited
 	}
-	saved, err := setControllerURLsIn(n.path, list)
+	var saved bool
+	err := n.whileIdentityExists(func() (err error) {
+		if saved, err = setControllerURLsIn(n.path, list); err != nil {
+			return err
+		}
+		// A renewal waiting to be settled replaces the identity file with
+		// the pending one, so that needs the new list too.
+		if _, err := os.Stat(n.pendingPath()); err == nil {
+			if _, err := setControllerURLsIn(n.pendingPath(), list); err != nil {
+				n.log.Error("cannot save controller list in the pending renewal", "error", err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		n.log.Error("cannot save controller list", "error", err)
 		return
 	}
-	// A renewal waiting to be settled replaces the identity file with the
-	// pending one, so that needs the new list too.
-	if _, err := os.Stat(n.pendingPath()); err == nil {
-		if _, err := setControllerURLsIn(n.pendingPath(), list); err != nil {
-			n.log.Error("cannot save controller list in the pending renewal", "error", err)
-		}
-	}
 	if saved {
 		n.log.Info("saved new controller list", "controllers", list)
 	}
+}
+
+// whileIdentityExists runs write under the config directory's edit lock,
+// and only while n's identity file is still there. The CLI renames and
+// removes identity files under that lock, refusing to rename one with a
+// renewal pending; without it, a write landing just after would bring the
+// old file back, or a renewal could start just after the check.
+func (n *Network) whileIdentityExists(write func() error) error {
+	// Identity files live in the config directory's networks directory.
+	unlock, err := config.Lock(filepath.Dir(filepath.Dir(n.path)))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if _, err := os.Stat(n.path); errors.Is(err, fs.ErrNotExist) {
+		return errors.New("the identity file is gone: the network was renamed or removed")
+	} else if err != nil {
+		return err
+	}
+	return write()
 }
 
 // setControllerURLsIn rewrites the identity file at path with list, and
