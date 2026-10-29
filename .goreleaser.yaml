@@ -68,3 +68,6 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # Re-running a release that failed partway (after some files were
+  # uploaded) replaces them instead of failing on the first one that exists.
+  replace_existing_artifacts: true
