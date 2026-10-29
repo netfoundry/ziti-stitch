@@ -74,6 +74,8 @@ func (d *Dir) StitchesUsing(name string) []string {
 // Edit applies change to d, validates the whole result and saves the
 // stitches. Nothing is saved unless the result is valid, so a config that
 // was already invalid can be repaired this way but never saved broken.
+// d must have been read under Lock (Update does both), or a change saved
+// since it was read is lost.
 func (d *Dir) Edit(change func(d *Dir) error) error {
 	if err := d.Editable(); err != nil {
 		return err

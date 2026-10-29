@@ -46,12 +46,14 @@ func newStitchCmd(configDir *string) *cobra.Command {
 	return cmd
 }
 
-// editStitches reads the config and applies change through Dir.Edit.
+// editStitches reads the config under its edit lock and applies change
+// through Dir.Edit.
 func editStitches(configDir string, change func(d *config.Dir) error) error {
-	d, err := readDir(configDir)
+	d, unlock, err := lockDir(configDir, false)
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	return d.Edit(change)
 }
 

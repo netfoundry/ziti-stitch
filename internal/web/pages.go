@@ -290,14 +290,9 @@ func parseStitchForm(r *http.Request, name string) (config.Stitch, stitchForm, e
 }
 
 func (s *Server) handleStitchAdd(w http.ResponseWriter, r *http.Request, v *view) {
-	st, err := s.state()
-	if err != nil {
-		s.renderError(w, r, v, http.StatusInternalServerError, err.Error())
-		return
-	}
 	cfg, form, err := parseStitchForm(r, "")
 	if err == nil {
-		err = st.Dir.Edit(func(d *config.Dir) error {
+		err = config.Update(s.dir, func(d *config.Dir) error {
 			if d.StitchIndex(cfg.Name) >= 0 {
 				return fmt.Errorf("a stitch called %q already exists", cfg.Name)
 			}
@@ -306,9 +301,10 @@ func (s *Server) handleStitchAdd(w http.ResponseWriter, r *http.Request, v *view
 		})
 	}
 	if err != nil {
-		// st.Dir may hold the rejected stitch; show the file as it is.
-		if fresh, ferr := s.state(); ferr == nil {
-			st = fresh
+		st, serr := s.state()
+		if serr != nil {
+			s.renderError(w, r, v, http.StatusInternalServerError, serr.Error())
+			return
 		}
 		form.IsNew, form.Networks, form.Err = true, newStitchForm(st.Dir, cfg, true).Networks, err.Error()
 		s.renderStitches(w, http.StatusUnprocessableEntity, v, st, form)
@@ -351,15 +347,10 @@ func (s *Server) renderEdit(w http.ResponseWriter, status int, v *view, st *stat
 }
 
 func (s *Server) handleStitchUpdate(w http.ResponseWriter, r *http.Request, v *view) {
-	st, err := s.state()
-	if err != nil {
-		s.renderError(w, r, v, http.StatusInternalServerError, err.Error())
-		return
-	}
 	name := r.PathValue("name")
 	cfg, form, err := parseStitchForm(r, name)
 	if err == nil {
-		err = st.Dir.Edit(func(d *config.Dir) error {
+		err = config.Update(s.dir, func(d *config.Dir) error {
 			i := d.StitchIndex(name)
 			if i < 0 {
 				return fmt.Errorf("there is no stitch called %q any more", name)
@@ -369,8 +360,10 @@ func (s *Server) handleStitchUpdate(w http.ResponseWriter, r *http.Request, v *v
 		})
 	}
 	if err != nil {
-		if fresh, ferr := s.state(); ferr == nil {
-			st = fresh
+		st, serr := s.state()
+		if serr != nil {
+			s.renderError(w, r, v, http.StatusInternalServerError, serr.Error())
+			return
 		}
 		form.Networks, form.Err = newStitchForm(st.Dir, cfg, false).Networks, err.Error()
 		s.renderEdit(w, http.StatusUnprocessableEntity, v, st, form)
@@ -402,17 +395,14 @@ func (s *Server) handleStitchRemove(w http.ResponseWriter, r *http.Request, v *v
 // editAndRedirect applies change to the stitch called name and sends the
 // browser back to the list.
 func (s *Server) editAndRedirect(w http.ResponseWriter, r *http.Request, v *view, name, done string, change func(d *config.Dir, i int)) {
-	d, err := config.Read(s.dir)
-	if err == nil {
-		err = d.Edit(func(d *config.Dir) error {
-			i := d.StitchIndex(name)
-			if i < 0 {
-				return fmt.Errorf("there is no stitch called %q", name)
-			}
-			change(d, i)
-			return nil
-		})
-	}
+	err := config.Update(s.dir, func(d *config.Dir) error {
+		i := d.StitchIndex(name)
+		if i < 0 {
+			return fmt.Errorf("there is no stitch called %q", name)
+		}
+		change(d, i)
+		return nil
+	})
 	if err != nil {
 		s.renderError(w, r, v, http.StatusUnprocessableEntity, err.Error())
 		return

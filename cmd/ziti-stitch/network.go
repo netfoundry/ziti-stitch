@@ -46,9 +46,43 @@ func readDir(configDir string) (*config.Dir, error) {
 	}
 	d, err := config.Read(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("no config directory at %s; start with: ziti-stitch enroll --jwt <file>", dir)
+		return nil, noConfigDir(dir)
 	}
 	return d, err
+}
+
+// noConfigDir is the error for a command that needs a config directory
+// when there is none at dir.
+func noConfigDir(dir string) error {
+	return fmt.Errorf("no config directory at %s; start with: ziti-stitch enroll --jwt <file>", dir)
+}
+
+// lockDir takes the config directory's edit lock, then reads it, for a
+// command that changes the directory: nothing else can change it between
+// the read and the write. create makes the directory if needed. The caller
+// releases the lock with unlock.
+func lockDir(configDir string, create bool) (d *config.Dir, unlock func(), err error) {
+	dir, err := resolveConfigDir(configDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if create {
+		if err := config.EnsureDir(dir); err != nil {
+			return nil, nil, err
+		}
+	}
+	unlock, err = config.Lock(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, noConfigDir(dir)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if d, err = config.Read(dir); err != nil {
+		unlock()
+		return nil, nil, err
+	}
+	return d, unlock, nil
 }
 
 // createDir creates the config directory if needed and reads it.
@@ -84,10 +118,12 @@ from the controller's host name (ctrl.acme.example.com gives "acme").`,
 			if err != nil {
 				return err
 			}
-			d, err := createDir(*configDir)
+			// Held while the token is redeemed, so the name stays free.
+			d, unlock, err := lockDir(*configDir, true)
 			if err != nil {
 				return err
 			}
+			defer unlock()
 			name, err := chooseName(d, name, controller)
 			if err != nil {
 				return err
@@ -207,10 +243,11 @@ func newNetworkAddCmd(configDir *string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("%s: %w", identityPath, err)
 			}
-			d, err := createDir(*configDir)
+			d, unlock, err := lockDir(*configDir, true)
 			if err != nil {
 				return err
 			}
+			defer unlock()
 			name, err := chooseName(d, name, info.Controllers[0])
 			if err != nil {
 				return err
@@ -268,10 +305,11 @@ func newNetworkRemoveCmd(configDir *string) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			d, err := readDir(*configDir)
+			d, unlock, err := lockDir(*configDir, false)
 			if err != nil {
 				return err
 			}
+			defer unlock()
 			n, ok := d.Network(name)
 			if !ok {
 				return fmt.Errorf("no network %q", name)
@@ -301,10 +339,11 @@ func newNetworkRenameCmd(configDir *string) *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			from, to := args[0], args[1]
-			d, err := readDir(*configDir)
+			d, unlock, err := lockDir(*configDir, false)
 			if err != nil {
 				return err
 			}
+			defer unlock()
 			old, ok := d.Network(from)
 			if !ok {
 				return fmt.Errorf("no network %q", from)

@@ -33,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netfoundry/ziti-stitch/internal/config"
 	"github.com/netfoundry/ziti-stitch/internal/network"
 )
 
@@ -247,10 +248,35 @@ func TestValidateOffline(t *testing.T) {
 
 func TestCommandsNeedAConfigDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "missing")
-	for _, args := range [][]string{{"stitch", "list"}, {"network", "list"}} {
+	for _, args := range [][]string{{"stitch", "list"}, {"network", "list"}, {"stitch", "remove", "s"}, {"network", "rename", "a", "b"}} {
 		if _, _, err := cli(t, dir, args...); err == nil || !strings.Contains(err.Error(), "ziti-stitch enroll") {
 			t.Errorf("%v: err = %v", args, err)
 		}
+	}
+}
+
+func TestChangesWaitForTheEditLock(t *testing.T) {
+	dir := twoNetworkDir(t)
+	unlock, err := config.Lock(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := cli(t, dir, "stitch", "add", "billing", "--from", "acme:billing-api", "--to", "partner:billing")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("stitch add finished while another change held the lock: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if out := mustCLI(t, dir, "stitch", "list"); !strings.Contains(out, "billing") {
+		t.Errorf("stitch not saved:\n%s", out)
 	}
 }
 
