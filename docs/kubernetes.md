@@ -120,6 +120,6 @@ docker run -d --name ziti-stitch \
   ghcr.io/netfoundry/ziti-stitch:<version> run --enroll-from /enroll
 ```
 
-- `/config` must be writable by user 65532: it holds the identities and their renewed certificates.
+- `/config` holds the identities and their renewed certificates, so it must be writable by user 65532. A new named volume, as above, is. A bind mount must be made so: `chown 65532:65532` the host directory.
 - `ZITI_STITCH_CONFIG_SOURCE` is optional. Without it, `config.yaml` and `stitches.yaml` live in `/config` too, and can be edited with `docker exec ziti-stitch ziti-stitch stitch ...`.
 - `--enroll-from` enrolls `<network>.jwt` (or adds `<network>.json`) for each network not yet in `/config`.

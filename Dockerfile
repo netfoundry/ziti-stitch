@@ -12,5 +12,8 @@ COPY $TARGETPLATFORM/ziti-stitch /usr/local/bin/ziti-stitch
 # the Helm chart) config.yaml and stitches.yaml come from elsewhere.
 ENV ZITI_STITCH_CONFIG_DIR=/config
 USER 65532:65532
+# Made after USER, so 65532 owns it. A new named volume mounted here starts
+# as a copy of it, owner included; without it the volume belongs to root.
+WORKDIR /config
 ENTRYPOINT ["/usr/local/bin/ziti-stitch"]
 CMD ["run"]
