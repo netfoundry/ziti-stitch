@@ -160,6 +160,18 @@ type Changes struct {
 // too, used by a stitch or not: one Ziti context per identity, never two
 // renewing the same certificate.
 func (r *Runner) Apply(d *config.Dir) Changes {
+	c, retunes := r.apply(d)
+	// Outside mu: a retune waits on the routers, which can take seconds,
+	// and Snapshot (the health probes, the web UI) needs mu meanwhile.
+	for _, retune := range retunes {
+		retune()
+	}
+	return c
+}
+
+// apply does Apply's work under mu, and returns the retunes it leaves to
+// the caller.
+func (r *Runner) apply(d *config.Dir) (Changes, []func()) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -175,6 +187,7 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 	}
 
 	var c Changes
+	var retunes []func()
 	restarting := map[string]bool{}
 	for name, e := range r.stitches {
 		want, ok := desired[name]
@@ -189,7 +202,8 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 			r.stopStitch(e, 0)
 		case want != e.cfg:
 			// Only precedence or cost: no need to rebind and leave a gap.
-			e.st.Retune(want.From)
+			st, in := e.st, want.From
+			retunes = append(retunes, func() { st.Retune(in) })
 			e.cfg = want
 			c.Retuned++
 		}
@@ -228,7 +242,7 @@ func (r *Runner) Apply(d *config.Dir) Changes {
 			r.stopNetwork(n)
 		}
 	}
-	return c
+	return c, retunes
 }
 
 // sameExceptTerms reports whether a and b differ at most in the

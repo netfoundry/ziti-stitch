@@ -100,6 +100,7 @@ type fakeStitch struct {
 	rec       *recorder
 	drained   chan struct{}
 	drainOnce sync.Once
+	retuning  chan struct{} // if set, Retune waits for it to close
 }
 
 func (f *fakeStitch) finish() { f.drainOnce.Do(func() { close(f.drained) }) }
@@ -111,6 +112,10 @@ func (f *fakeStitch) Run(ctx context.Context) {
 }
 
 func (f *fakeStitch) Retune(in config.Ingress) {
+	if f.retuning != nil {
+		f.rec.add("stitch retuning %s", f.cfg.Name)
+		<-f.retuning
+	}
 	f.rec.add("stitch retune %s v=%d cost=%d precedence=%s", f.cfg.Name, version(f.cfg), in.Cost, in.Precedence)
 }
 
@@ -136,6 +141,8 @@ type harness struct {
 	r   *Runner
 	rec *recorder
 
+	retuning chan struct{} // given to every stitch; see fakeStitch
+
 	mu          sync.Mutex
 	stitches    map[string][]*fakeStitch // instances by "name v", oldest first
 	commonNames map[string]string        // by identity file; see identity
@@ -146,7 +153,7 @@ func newHarness() *harness {
 	h.r = newRunner(slog.New(slog.NewTextHandler(io.Discard, nil)),
 		func(name, path string) Network { return &fakeNetwork{name: name, path: path, rec: h.rec} },
 		func(cfg config.Stitch, _, _ Network) Stitch {
-			f := &fakeStitch{cfg: cfg, rec: h.rec, drained: make(chan struct{})}
+			f := &fakeStitch{cfg: cfg, rec: h.rec, drained: make(chan struct{}), retuning: h.retuning}
 			h.mu.Lock()
 			key := fmt.Sprintf("%s v=%d", cfg.Name, version(cfg))
 			h.stitches[key] = append(h.stitches[key], f)
@@ -532,5 +539,32 @@ func TestReenrolledNetworkGetsANewContext(t *testing.T) {
 	// A renewal keeps the common name, so nothing restarts.
 	if c := h.r.Apply(dir(abNets, st("s2", "a", "b", 0))); c != (Changes{}) {
 		t.Errorf("same identity, changes = %+v", c)
+	}
+}
+
+// A retune waits on the routers; Snapshot, which the health probes and the
+// web UI call, must not wait with it.
+func TestSlowRetuneDoesNotBlockSnapshot(t *testing.T) {
+	h := newHarness()
+	h.retuning = make(chan struct{})
+	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
+	h.rec.waitFor(t, "stitch start s1 v=0")
+
+	changed := st("s1", "a", "b", 0)
+	changed.From.Cost = 7
+	applied := make(chan Changes)
+	go func() { applied <- h.r.Apply(dir(abNets, changed)) }()
+	h.rec.waitFor(t, "stitch retuning s1")
+
+	snapped := make(chan struct{})
+	go func() { h.r.Snapshot(); close(snapped) }()
+	select {
+	case <-snapped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Snapshot waited for a retune")
+	}
+	close(h.retuning)
+	if c := <-applied; c != (Changes{Retuned: 1}) {
+		t.Errorf("changes = %+v", c)
 	}
 }
