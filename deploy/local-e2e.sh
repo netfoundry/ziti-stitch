@@ -84,8 +84,10 @@ zt() { local net=$1; shift; zcli "$net" edge -i "stitch-e2e-$net" "$@"; }
 start_network() {
   local net=$1 ctrl=$2 router=$3 i
   log "starting network $net ($("$ZITI" version)) on $ctrl/$router"
-  mkdir -p "$RUN_DIR/$net/home"
-  start_bg "quickstart-$net" env HOME="$RUN_DIR/$net/home" "$ZITI" edge quickstart --home "$RUN_DIR/$net/ziti" \
+  mkdir -p "$RUN_DIR/$net/home" "$RUN_DIR/$net/quickstart-home"
+  # The quickstart logs its own CLI in as it starts. With zcli's home, that
+  # save can land just after ours and lose our login.
+  start_bg "quickstart-$net" env HOME="$RUN_DIR/$net/quickstart-home" "$ZITI" edge quickstart --home "$RUN_DIR/$net/ziti" \
     --ctrl-address localhost --ctrl-port "$ctrl" --router-address localhost --router-port "$router" \
     -u admin -p admin
   wait_http "https://localhost:$ctrl/edge/client/v1/version" 60 || die "controller $net did not start; see $RUN_DIR/quickstart-$net.log"
