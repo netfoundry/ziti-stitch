@@ -323,12 +323,12 @@ stitches:
 }
 
 func TestValidName(t *testing.T) {
-	for _, s := range []string{"acme", "a", "partner-2", "us_east", "0net", strings.Repeat("a", 63)} {
+	for _, s := range []string{"acme", "a", "partner-2", "us_east", "0net", strings.Repeat("a", 63), "console", "nul2", "com10"} {
 		if !ValidName(s) {
 			t.Errorf("ValidName(%q) = false, want true", s)
 		}
 	}
-	for _, s := range []string{"", "Acme", "-acme", "_x", "a b", "a.b", "a/b", strings.Repeat("a", 64)} {
+	for _, s := range []string{"", "Acme", "-acme", "_x", "a b", "a.b", "a/b", strings.Repeat("a", 64), "nul", "con", "com1", "lpt9"} {
 		if ValidName(s) {
 			t.Errorf("ValidName(%q) = true, want false", s)
 		}

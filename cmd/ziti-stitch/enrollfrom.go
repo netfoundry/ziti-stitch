@@ -56,7 +56,7 @@ func enrollFrom(dir string, d *config.Dir, out io.Writer) error {
 		}
 		path := filepath.Join(dir, file)
 		if !config.ValidName(name) {
-			return fmt.Errorf("%s: %q is not a valid network name", path, name)
+			return fmt.Errorf("%s: %q is not a valid network name (%s)", path, name, config.NameRule)
 		}
 		if _, ok := d.Network(name); ok || added[name] {
 			continue

@@ -182,13 +182,23 @@ type stitchesFile struct {
 	Stitches []Stitch `yaml:"stitches"`
 }
 
-var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
+var (
+	nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
+	// deviceRE matches the names Windows reserves for devices, extension
+	// or not: nul.json is the null device, not a file.
+	deviceRE = regexp.MustCompile(`^(con|prn|aux|nul|com[0-9]|lpt[0-9])$`)
+)
+
+// NameRule says what ValidName accepts, for error messages.
+const NameRule = "lower case letters, digits, '-' and '_', and not a Windows device name such as con or nul"
 
 // ValidName reports whether s can name a network or a stitch: lower case
 // letters, digits, '-' and '_', starting with a letter or digit, at most
-// 63 characters. Names end up in file names, logs and URLs.
+// 63 characters, and not a Windows device name. Names end up in file
+// names (on every platform: a config moves between machines), logs and
+// URLs.
 func ValidName(s string) bool {
-	return nameRE.MatchString(s)
+	return nameRE.MatchString(s) && !deviceRE.MatchString(s)
 }
 
 // Load reads the config directory at path, fills in defaults and validates
@@ -324,7 +334,7 @@ func listNetworks(dir string) ([]Network, error) {
 		}
 		name := strings.TrimSuffix(n, IdentityExt)
 		if !ValidName(name) {
-			return nil, fmt.Errorf("%s: %q is not a valid network name (lower case letters, digits, '-' and '_')", filepath.Join(dir, n), name)
+			return nil, fmt.Errorf("%s: %q is not a valid network name (%s)", filepath.Join(dir, n), name, NameRule)
 		}
 		nets = append(nets, Network{Name: name, IdentityFile: filepath.Join(dir, n)})
 	}
@@ -460,7 +470,7 @@ func (d *Dir) validateStitches(p *problems) map[string]string {
 			where = fmt.Sprintf("%s: stitch #%d", StitchesFileName, i+1)
 			p.add("%s has no name", where)
 		} else if !ValidName(s.Name) {
-			p.add("%s: name is not valid (lower case letters, digits, '-' and '_')", where)
+			p.add("%s: name is not valid (%s)", where, NameRule)
 		} else if names[s.Name] {
 			p.add("%s: name is used more than once", where)
 		}
