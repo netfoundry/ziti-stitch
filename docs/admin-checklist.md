@@ -30,7 +30,7 @@ ziti-stitch hosts the service here, the way a tunneler or SDK app hosting a serv
    ziti edge create service-policy stitch-hosts-bind Bind --identity-roles '#stitch-hosts' --service-roles '#stitched'
    ```
 
-4. **A Dial service policy** for the clients, as for any service.
+4. **A Dial service policy** for the clients, as for any service. Every identity it admits can open connections through ziti-stitch, and by default they stay open, idle or not, with no limit on how many. If that includes identities you do not fully trust, ask whoever runs ziti-stitch to set `max_connections` and `idle_timeout` on the stitch.
 
 5. **Edge router access**: an edge router policy that lets the ziti-stitch identities use routers that serve the service, and a service edge router policy for the service. Many networks already have "all" policies that cover this.
 

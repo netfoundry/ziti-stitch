@@ -95,7 +95,11 @@ App data (what the dialer sent along, e.g. a tunneler's intercepted address):
 
 Only annotate writes the ziti_stitch object; passthrough forwards whatever
 the dialer sent, including one it made up. The egress side should trust
-that object only from a stitch it knows annotates.`,
+that object only from a stitch it knows annotates.
+
+By default connections stay open however long they are idle, and there is
+no limit on how many. If the --from service admits dialers you do not
+fully trust, set --idle-timeout and --max-connections.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
