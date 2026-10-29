@@ -81,6 +81,7 @@ Serving the UI over Ziti (`web.ziti`) needs a separate admin service per instanc
 
 Each pod serves `/healthz` and `/readyz` on the health port (8081):
 
+- **Startup** (`/healthz`): up to 10 minutes for the first answer. Enrolling from the Secret comes first, and each enrollment waits up to 2 minutes on its controller; liveness checks start only after this, so a slow enrollment is not cut off halfway.
 - **Liveness** (`/healthz`): the process answers. A wedged pod is restarted.
 - **Readiness** (`/readyz`): the configuration is valid, every network is authenticated, and every enabled stitch is listening (or gated, still serving as a last resort).
 

@@ -91,11 +91,45 @@ func parseInfo(raw []byte) (Info, error) {
 	return info, nil
 }
 
+// enrollTimeout bounds each call into the SDK's enrollment code, whose
+// HTTP clients have no timeout of their own: a controller that accepts the
+// connection and never answers would hang enroll, and a pod's start, for
+// good. Even reading a token contacts the controller (for the certificate
+// that signed it).
+var enrollTimeout = 2 * time.Minute
+
+// errNoAnswer is withEnrollTimeout giving up.
+var errNoAnswer = errors.New("the controller did not answer")
+
+// withEnrollTimeout returns what f returns, or an error once enrollTimeout
+// has passed. f is left running then; callers exit soon after.
+func withEnrollTimeout[T any](f func() (T, error)) (T, error) {
+	type result struct {
+		v   T
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, err := f()
+		done <- result{v, err}
+	}()
+	select {
+	case r := <-done:
+		return r.v, r.err
+	case <-time.After(enrollTimeout):
+		var zero T
+		return zero, fmt.Errorf("%w within %v", errNoAnswer, enrollTimeout)
+	}
+}
+
 // TokenController returns the controller an enrollment token is for,
 // without redeeming it. Tokens work once, so callers settle everything
 // they can (the network's name, say) before calling Enroll.
 func TokenController(token string) (string, error) {
-	claims, _, err := enroll.ParseToken(token)
+	claims, err := withEnrollTimeout(func() (*ziti.EnrollmentClaims, error) {
+		claims, _, err := enroll.ParseToken(token)
+		return claims, err
+	})
 	if err != nil {
 		return "", fmt.Errorf("reading enrollment token: %w", err)
 	}
@@ -105,6 +139,14 @@ func TokenController(token string) (string, error) {
 // Enroll redeems a one-time enrollment token (the JWT an admin hands out)
 // with a fresh EC key, and returns the identity file content.
 func Enroll(token string) ([]byte, error) {
+	raw, err := withEnrollTimeout(func() ([]byte, error) { return enrollToken(token) })
+	if errors.Is(err, errNoAnswer) {
+		return nil, fmt.Errorf("enrolling: %w; the token may have been used, and if so the network admin must issue a new one", err)
+	}
+	return raw, err
+}
+
+func enrollToken(token string) ([]byte, error) {
 	claims, jwtToken, err := enroll.ParseToken(token)
 	if err != nil {
 		return nil, fmt.Errorf("reading enrollment token: %w", err)

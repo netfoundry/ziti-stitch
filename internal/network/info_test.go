@@ -22,10 +22,15 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -121,5 +126,28 @@ func TestDescribeExpiry(t *testing.T) {
 		if got := DescribeExpiry(notAfter, now); got != want {
 			t.Errorf("DescribeExpiry(%v) = %q, want %q", notAfter, got, want)
 		}
+	}
+}
+
+// The SDK's enrollment HTTP clients have no timeout, and even reading a
+// token contacts the controller: one that never answers must not hang.
+func TestEnrollGivesUpOnASilentController(t *testing.T) {
+	defer func(d time.Duration) { enrollTimeout = d }(enrollTimeout)
+	enrollTimeout = 200 * time.Millisecond
+
+	release := make(chan struct{})
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+
+	enc := base64.RawURLEncoding.EncodeToString
+	token := enc([]byte(`{"alg":"ES256","typ":"JWT"}`)) + "." +
+		enc([]byte(`{"iss":"`+srv.URL+`","em":"ott","sub":"x","jti":"y"}`)) + "." + enc([]byte("sig"))
+
+	if _, err := TokenController(token); !errors.Is(err, errNoAnswer) {
+		t.Errorf("TokenController: err = %v, want no answer", err)
+	}
+	if _, err := Enroll(token); !errors.Is(err, errNoAnswer) || !strings.Contains(err.Error(), "may have been used") {
+		t.Errorf("Enroll: err = %v, want no answer and a warning about the token", err)
 	}
 }

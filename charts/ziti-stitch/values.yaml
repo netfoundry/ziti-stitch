@@ -33,7 +33,7 @@ stitches: []
 # volume; the Secret is only read while a network is missing there.
 enrollment:
   secretName: ""
-  networks: []  # e.g. [acme, partner]
+  networks: []  # e.g. [acme, partner]; required with secretName
 
 health:
   port: 8081

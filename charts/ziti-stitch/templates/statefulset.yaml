@@ -1,4 +1,7 @@
 {{- $fullname := include "ziti-stitch.fullname" . -}}
+{{- if and .Values.enrollment.secretName (not .Values.enrollment.networks) }}
+{{- fail "enrollment.networks must list the networks to enroll from enrollment.secretName, e.g. [acme, partner]" }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -56,6 +59,16 @@ spec:
           ports:
             - name: health
               containerPort: {{ .Values.health.port }}
+          # The health endpoint starts after --enroll-from, and each
+          # enrollment may wait up to 2 minutes on its controller. Liveness
+          # checks begin once this passes, so a slow start is not killed
+          # halfway through redeeming a one-time token.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+            failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /healthz
