@@ -4,6 +4,7 @@ name: Newer versions
 # OpenZiti release and pre-release and the oldest supported version, and the
 # tunnelers test with the newest ziti-edge-tunnel. CI pins its versions, so a
 # failure here means a version we do not test yet (or the floor) breaks us.
+# It also checks for vulnerability advisories published since the last change.
 
 on:
   schedule:
@@ -26,6 +27,17 @@ jobs:
         run: .github/scripts/newer-versions.sh | tee -a "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # CI checks on every change; this catches advisories published since.
+  vuln:
+    name: known vulnerabilities
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make vuln
 
   e2e:
     name: two networks, OpenZiti ${{ matrix.ziti }}

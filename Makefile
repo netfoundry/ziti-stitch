@@ -2,12 +2,13 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # -trimpath keeps the build machine's paths out of the binary.
 LDFLAGS := -trimpath -ldflags "-s -w -X main.version=$(VERSION)"
 STATICCHECK ?= honnef.co/go/tools/cmd/staticcheck@2026.2.2
+GOVULNCHECK ?= golang.org/x/vuln/cmd/govulncheck@v1.1.4
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 GOFILES = $(shell find . -name '*.go' -not -path './.git/*')
 
 export CGO_ENABLED := 0
 
-.PHONY: build build-all test e2e-test check fmt fmt-check vet lint clean
+.PHONY: build build-all test e2e-test check fmt fmt-check vet lint vuln clean
 
 build:
 	go build $(LDFLAGS) -o bin/ziti-stitch ./cmd/ziti-stitch
@@ -43,6 +44,11 @@ lint:
 	go run $(STATICCHECK) -tags e2e ./...
 
 check: fmt-check vet lint
+
+# Fails only on vulnerabilities our code can reach, in the toolchain go.mod
+# names or in a dependency.
+vuln:
+	go run $(GOVULNCHECK) ./...
 
 test:
 	go test ./...
