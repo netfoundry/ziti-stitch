@@ -54,7 +54,7 @@ Each pod enrolls its identities on its first start, then runs. On later starts i
 
 Edit the values and run `helm upgrade`. The kubelet updates the ConfigMap in the pods within about a minute, and ziti-stitch applies the change on its own: unchanged stitches are not touched, changed ones restart, and a change to only `precedence` or `cost` applies in place. No pod restarts.
 
-The stitches are read-only inside the pods: `ziti-stitch stitch ...` commands and the web UI show them but refuse to change them, saying where they are managed. Changes to `web.listen`, `web.ziti` and the health port take effect when the pods restart (`kubectl rollout restart statefulset/ziti-stitch`).
+The stitches are read-only inside the pods: `ziti-stitch stitch ...` commands and the web UI show them but refuse to change them, saying where they are managed. Changes to `log.format`, `web.listen`, `web.ziti` and the health port take effect when the pods restart (`kubectl rollout restart statefulset/ziti-stitch`).
 
 ## Looking at it
 

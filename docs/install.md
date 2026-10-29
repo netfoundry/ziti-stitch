@@ -39,7 +39,7 @@ Running the CLI as root puts the config in `/var/lib/ziti-stitch`, which is wher
 - Status: `ziti-stitch service status`, or `systemctl status ziti-stitch`
 - Config changes made with the CLI apply on their own; `systemctl reload ziti-stitch` forces a reload.
 
-The unit is locked down: no capabilities, a read-only filesystem apart from the config directory, no access to devices or kernel settings, and only IP, Unix and netlink sockets. ziti-stitch only makes outbound connections, so it needs nothing more. It runs as root inside that sandbox by default. To run it as a dedicated user instead:
+The unit is locked down: no capabilities, a read-only filesystem apart from the config directory, no access to devices or kernel settings, and only IP, Unix and netlink sockets. Apart from the web UI and health probes, when they are turned on, ziti-stitch only makes outbound connections, so it needs nothing more. It runs as root inside that sandbox by default. To run it as a dedicated user instead:
 
 ```
 sudo useradd --system --home-dir /var/lib/ziti-stitch --shell /usr/sbin/nologin ziti-stitch

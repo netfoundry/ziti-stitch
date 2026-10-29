@@ -9,7 +9,8 @@ image:
 imagePullSecrets: []
 
 # config.yaml, rendered into a ConfigMap. Changes apply without a restart,
-# except where noted in the README. health.listen is set from health.port.
+# except log.format and where the web UI listens (see docs/kubernetes.md).
+# health.listen is set from health.port.
 config:
   log:
     level: info

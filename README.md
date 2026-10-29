@@ -116,7 +116,7 @@ Run two or more instances with the same stitches and their own identities; the i
 ```
 networks/acme.json      identity on network "acme", one file per network
 stitches.yaml           written by the stitch commands; can be edited by hand
-config.yaml             optional: log.level (debug|info|warn|error), log.format (text|json), web.listen
+config.yaml             optional: logging, the web UI and health probes (below)
 ```
 
 ```yaml
@@ -130,7 +130,18 @@ stitches:
     max_connections: 500                             # optional; refuse more open at once; 0 or absent: no limit
 ```
 
-The stitch commands rewrite `stitches.yaml`; comments in it are not kept.
+```yaml
+# config.yaml; every setting is optional
+log:
+  level: info              # debug, info, warn or error
+  format: text             # or json; a change needs a restart
+web:
+  listen: 127.0.0.1:8474   # the web UI, on loopback; web.ziti serves it over Ziti (docs/web-ui.md)
+health:
+  listen: 127.0.0.1:8081   # /healthz (alive) and /readyz (ready); ":8081" for every interface
+```
+
+The stitch commands rewrite `stitches.yaml`; comments in it are not kept. Changes to `config.yaml` apply on their own too, except `log.format` and where the web UI and health probes listen, which need a restart.
 
 With `ZITI_STITCH_CONFIG_SOURCE` set, `config.yaml` and `stitches.yaml` are read from that directory instead (for example a Kubernetes ConfigMap) and cannot be changed through ziti-stitch; the config directory then holds only identities and state. See [docs/kubernetes.md](docs/kubernetes.md).
 

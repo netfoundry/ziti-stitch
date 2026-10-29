@@ -68,7 +68,7 @@ Only if ziti-stitch's web UI is to be reached as a Ziti service. On the network 
 
 ## Certificates
 
-ziti-stitch renews its identities' certificates by itself, 30 days before they expire, and saves the new ones in its config. An admin can ask for a renewal sooner (`ziti edge update authenticator cert <id> --request-extend`); ziti-stitch picks the request up within an hour.
+ziti-stitch renews its identities' certificates by itself and saves the new ones in its config. It renews 30 days before a certificate expires, or sooner for a short-lived one: once a third of its lifetime is left (10 days for a 30-day certificate). It checks every hour, and only for networks it is using. A network that no enabled stitch (or the web UI) uses is not running, so its certificate is not renewed and can expire. An admin can ask for a renewal sooner (`ziti edge update authenticator cert <id> --request-extend`); ziti-stitch picks the request up within an hour.
 
 ## Checking the result
 
