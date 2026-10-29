@@ -57,8 +57,22 @@ func TestCheckUnitConfigDir(t *testing.T) {
 			t.Errorf("%s: %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"relative/dir", "/var/lib/my stitch", "/x/{{evil}}", `/x/"q"`, "/x/a\\b", "/x/tab\there"} {
+	for _, bad := range []string{"relative/dir", "/var/lib/my stitch", "/x/{{evil}}", `/x/"q"`, "/x/a\\b", "/x/tab\there", "/x/%h", "/x/$HOME"} {
 		if err := checkUnitConfigDir(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestCheckUnitExecutable(t *testing.T) {
+	// Spaces are escaped by the service library.
+	for _, ok := range []string{"/usr/local/bin/ziti-stitch", "/opt/my tools/ziti-stitch"} {
+		if err := checkUnitExecutable(ok); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"/opt/100%/ziti-stitch", "/opt/$x/ziti-stitch", `/opt/"q"/ziti-stitch`, "/opt/a\\b/ziti-stitch"} {
+		if err := checkUnitExecutable(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
 	}

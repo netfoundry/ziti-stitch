@@ -54,6 +54,13 @@ func serviceConfig(configDir, userName string) (*service.Config, error) {
 		if err := checkUnitConfigDir(configDir); err != nil {
 			return nil, err
 		}
+		exe, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		if err := checkUnitExecutable(exe); err != nil {
+			return nil, err
+		}
 		cfg.Option["SystemdScript"] = systemdUnit(configDir)
 		// journald collects stderr; no log file.
 	case "darwin":

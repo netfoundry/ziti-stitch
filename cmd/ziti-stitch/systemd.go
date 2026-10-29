@@ -78,14 +78,25 @@ WantedBy=multi-user.target
 }
 
 // checkUnitConfigDir rejects config directories the unit cannot express
-// safely: ReadWritePaths splits on whitespace, and the template engine
-// would read braces as its own.
+// safely: ReadWritePaths splits on whitespace, the template engine would
+// read braces as its own, and systemd expands % (specifiers such as %h)
+// and, in ExecStart, $ (variables), quoted or not.
 func checkUnitConfigDir(dir string) error {
 	if !strings.HasPrefix(dir, "/") {
 		return fmt.Errorf("config directory %q must be an absolute path", dir)
 	}
-	if strings.ContainsAny(dir, " \t\n\"'{}\\") {
-		return fmt.Errorf("config directory %q cannot contain whitespace, quotes, braces or backslashes when installed as a systemd service", dir)
+	if strings.ContainsAny(dir, " \t\n\"'{}\\%$") {
+		return fmt.Errorf("config directory %q cannot contain whitespace, quotes, braces, backslashes, %% or $ when installed as a systemd service", dir)
+	}
+	return nil
+}
+
+// checkUnitExecutable rejects an executable path the unit cannot express:
+// the service library escapes only its spaces, and systemd would expand %
+// and $ in it.
+func checkUnitExecutable(path string) error {
+	if strings.ContainsAny(path, "\n\"\\%$") {
+		return fmt.Errorf("%q cannot contain quotes, backslashes, %% or $ when installed as a systemd service; move the binary (e.g. to /usr/local/bin)", path)
 	}
 	return nil
 }
