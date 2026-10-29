@@ -127,12 +127,27 @@ jobs:
       - run: helm lint charts/ziti-stitch -f charts/ziti-stitch/ci/test-values.yaml --strict
       - run: helm template ziti-stitch charts/ziti-stitch -f charts/ziti-stitch/ci/test-values.yaml >/dev/null
 
+  # The one check the main branch ruleset requires, so that it need not
+  # list every job (some names change with the version pins). It runs even
+  # when a job it needs fails, since a skipped check would count as passed.
+  passed:
+    name: CI passed
+    if: always()
+    needs: [check, build, windows, e2e, tunnelers, chart]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: every job passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+
   release:
     name: release
     # Only for a version tag, and only once every other job has passed.
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [check, build, windows, e2e, tunnelers, chart]
     runs-on: ubuntu-24.04
+    # Waits for a maintainer's approval; the environment only accepts v* tags.
+    environment: release
     permissions:
       contents: write # create the GitHub release and upload its files
       packages: write # push the image and the chart to ghcr.io
