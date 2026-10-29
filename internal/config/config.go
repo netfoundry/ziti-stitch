@@ -136,12 +136,13 @@ type Log struct {
 // Stitch binds a service on one network and dials a service on another
 // for every connection that arrives.
 type Stitch struct {
-	Name        string        `yaml:"name"`
-	From        Ingress       `yaml:"from"`
-	To          Egress        `yaml:"to"`
-	AppData     AppDataPolicy `yaml:"app_data,omitempty"`
-	IdleTimeout time.Duration `yaml:"idle_timeout,omitempty"` // 0 disables it
-	Disabled    bool          `yaml:"disabled,omitempty"`
+	Name           string        `yaml:"name"`
+	From           Ingress       `yaml:"from"`
+	To             Egress        `yaml:"to"`
+	AppData        AppDataPolicy `yaml:"app_data,omitempty"`
+	IdleTimeout    time.Duration `yaml:"idle_timeout,omitempty"`    // 0 disables it
+	MaxConnections int           `yaml:"max_connections,omitempty"` // 0 means no limit
+	Disabled       bool          `yaml:"disabled,omitempty"`
 }
 
 // Ingress is the service a stitch binds.
@@ -494,6 +495,9 @@ func (d *Dir) validateStitch(p *problems, where string, s Stitch) {
 	}
 	if s.IdleTimeout < 0 {
 		p.add("%s: idle_timeout cannot be negative", where)
+	}
+	if s.MaxConnections < 0 {
+		p.add("%s: max_connections cannot be negative", where)
 	}
 	if s.To.ConnectTimeout < 0 {
 		p.add("%s: to.connect_timeout cannot be negative", where)

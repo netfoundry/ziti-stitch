@@ -144,7 +144,7 @@ func TestStitchLifecycle(t *testing.T) {
 	dir := twoNetworkDir(t)
 
 	mustCLI(t, dir, "stitch", "add", "billing", "--from", "acme:billing-api", "--to", "partner:billing")
-	mustCLI(t, dir, "stitch", "add", "odd", "--from", "acme:svc:with:colons", "--to", "partner:x", "--app-data", "annotate", "--idle-timeout", "1h", "--disabled")
+	mustCLI(t, dir, "stitch", "add", "odd", "--from", "acme:svc:with:colons", "--to", "partner:x", "--app-data", "annotate", "--idle-timeout", "1h", "--max-connections", "500", "--disabled")
 
 	out := mustCLI(t, dir, "stitch", "list")
 	for _, want := range []string{"billing", "acme:billing-api", "partner:billing", "passthrough", "enabled", "acme:svc:with:colons", "annotate", "disabled"} {
@@ -159,6 +159,9 @@ func TestStitchLifecycle(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "passthrough") {
 		t.Errorf("stitches.yaml spells out defaults:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "max_connections: 500") {
+		t.Errorf("stitches.yaml lacks max_connections:\n%s", raw)
 	}
 
 	if _, _, err := cli(t, dir, "stitch", "add", "billing", "--from", "acme:a", "--to", "partner:b"); err == nil || !strings.Contains(err.Error(), "already exists") {

@@ -72,6 +72,7 @@ func newStitchAddCmd(configDir *string) *cobra.Command {
 		from, to, appData, precedence string
 		cost                          uint16
 		connectTimeout, idleTimeout   time.Duration
+		maxConnections                int
 		disabled                      bool
 	)
 	cmd := &cobra.Command{
@@ -95,10 +96,11 @@ that object only from a stitch it knows annotates.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			s := config.Stitch{
-				Name:        name,
-				AppData:     config.AppDataPolicy(appData),
-				IdleTimeout: idleTimeout,
-				Disabled:    disabled,
+				Name:           name,
+				AppData:        config.AppDataPolicy(appData),
+				IdleTimeout:    idleTimeout,
+				MaxConnections: maxConnections,
+				Disabled:       disabled,
 			}
 			var err error
 			if s.From.Network, s.From.Service, err = parseEndpoint(from); err != nil {
@@ -131,6 +133,7 @@ that object only from a stitch it knows annotates.`,
 	f.Uint16Var(&cost, "cost", 0, "terminator cost: with several instances, the lowest gets the dials while healthy")
 	f.DurationVar(&connectTimeout, "connect-timeout", config.DefaultConnectTimeout, "how long to wait for the egress dial")
 	f.DurationVar(&idleTimeout, "idle-timeout", 0, "close connections idle this long (0 never)")
+	f.IntVar(&maxConnections, "max-connections", 0, "refuse connections beyond this many open at once (0 no limit)")
 	f.BoolVar(&disabled, "disabled", false, "add the stitch disabled")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("to")

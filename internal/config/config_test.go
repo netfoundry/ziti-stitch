@@ -104,6 +104,7 @@ stitches:
     to: {network: partner, service: billing, connect_timeout: 2500ms}
     app_data: annotate
     idle_timeout: 1h
+    max_connections: 500
     disabled: true
 `,
 	})
@@ -115,12 +116,13 @@ stitches:
 		t.Errorf("log = %+v", d.Config.Log)
 	}
 	want := Stitch{
-		Name:        "billing",
-		From:        Ingress{Network: "acme", Service: "billing-api", Precedence: PrecedenceRequired, Cost: 10},
-		To:          Egress{Network: "partner", Service: "billing", ConnectTimeout: 2500 * time.Millisecond},
-		AppData:     AppDataAnnotate,
-		IdleTimeout: time.Hour,
-		Disabled:    true,
+		Name:           "billing",
+		From:           Ingress{Network: "acme", Service: "billing-api", Precedence: PrecedenceRequired, Cost: 10},
+		To:             Egress{Network: "partner", Service: "billing", ConnectTimeout: 2500 * time.Millisecond},
+		AppData:        AppDataAnnotate,
+		IdleTimeout:    time.Hour,
+		MaxConnections: 500,
+		Disabled:       true,
 	}
 	if d.Stitches[0] != want {
 		t.Errorf("stitch = %+v\nwant     %+v", d.Stitches[0], want)
@@ -202,8 +204,9 @@ stitches:
     to: {network: nowhere, service: b, connect_timeout: -1s}
     app_data: copy
     idle_timeout: -5s
+    max_connections: -1
 `,
-			want: []string{"name is not valid", `to.network "nowhere" has no identity`, `precedence "high"`, `app_data "copy"`, "idle_timeout cannot be negative", "connect_timeout cannot be negative"},
+			want: []string{"name is not valid", `to.network "nowhere" has no identity`, `precedence "high"`, `app_data "copy"`, "idle_timeout cannot be negative", "connect_timeout cannot be negative", "max_connections cannot be negative"},
 		},
 		{
 			name: "duplicate name",

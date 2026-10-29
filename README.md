@@ -127,6 +127,7 @@ stitches:
     to: {network: partner, service: billing}        # optional: connect_timeout (default 5s)
     app_data: passthrough                            # or strip, annotate
     idle_timeout: 1h                                 # optional; 0 or absent disables it
+    max_connections: 500                             # optional; refuse more open at once; 0 or absent: no limit
 ```
 
 The stitch commands rewrite `stitches.yaml`; comments in it are not kept.

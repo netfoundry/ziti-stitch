@@ -60,13 +60,13 @@ func TestParseStitchForm(t *testing.T) {
 	s, _, err := parseStitchForm(req(url.Values{
 		"name": {" billing "}, "from_network": {"acme"}, "from_service": {" billing-api "},
 		"to_network": {"partner"}, "to_service": {"billing"}, "precedence": {"required"},
-		"cost": {"10"}, "connect_timeout": {"7s"}, "idle_timeout": {"1h"}, "app_data": {"annotate"},
+		"cost": {"10"}, "connect_timeout": {"7s"}, "idle_timeout": {"1h"}, "max_connections": {"500"}, "app_data": {"annotate"},
 	}), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.Name != "billing" || s.From.Service != "billing-api" || s.From.Cost != 10 || s.From.Precedence != "required" ||
-		s.To.ConnectTimeout != 7*time.Second || s.IdleTimeout != time.Hour || s.AppData != config.AppDataAnnotate || s.Disabled {
+		s.To.ConnectTimeout != 7*time.Second || s.IdleTimeout != time.Hour || s.MaxConnections != 500 || s.AppData != config.AppDataAnnotate || s.Disabled {
 		t.Errorf("stitch = %+v", s)
 	}
 
@@ -78,13 +78,13 @@ func TestParseStitchForm(t *testing.T) {
 	}
 
 	// Every bad field is reported, and what was typed comes back.
-	_, f, err := parseStitchForm(req(url.Values{"cost": {"70000"}, "connect_timeout": {"soon"}, "idle_timeout": {"5"}}), "")
-	for _, want := range []string{`cost "70000"`, `connect timeout "soon"`, `idle timeout "5"`} {
+	_, f, err := parseStitchForm(req(url.Values{"cost": {"70000"}, "connect_timeout": {"soon"}, "idle_timeout": {"5"}, "max_connections": {"lots"}}), "")
+	for _, want := range []string{`cost "70000"`, `connect timeout "soon"`, `idle timeout "5"`, `max connections "lots"`} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %s", err, want)
 		}
 	}
-	if f.ConnectTimeout != "soon" || f.IdleTimeout != "5" {
+	if f.ConnectTimeout != "soon" || f.IdleTimeout != "5" || f.MaxConnections != "lots" {
 		t.Errorf("form lost what was typed: %+v", f)
 	}
 }

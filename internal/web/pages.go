@@ -203,6 +203,7 @@ type stitchForm struct {
 	Stitch         config.Stitch
 	ConnectTimeout string // as typed, so a bad value comes back for fixing
 	IdleTimeout    string
+	MaxConnections string
 	Networks       []string
 	Err            string
 	CSRF           string // the form is rendered on its own, without the view
@@ -213,6 +214,9 @@ func newStitchForm(d *config.Dir, s config.Stitch, isNew bool) stitchForm {
 	f := stitchForm{IsNew: isNew, Stitch: s, ConnectTimeout: s.To.ConnectTimeout.String()}
 	if s.IdleTimeout > 0 {
 		f.IdleTimeout = s.IdleTimeout.String()
+	}
+	if s.MaxConnections > 0 {
+		f.MaxConnections = strconv.Itoa(s.MaxConnections)
 	}
 	for _, n := range d.Networks {
 		f.Networks = append(f.Networks, n.Name)
@@ -244,7 +248,7 @@ func (s *Server) renderStitches(w http.ResponseWriter, status int, v *view, st *
 // parseStitchForm reads the add/edit form. name is the stitch's name when
 // editing; adding takes it from the form.
 func parseStitchForm(r *http.Request, name string) (config.Stitch, stitchForm, error) {
-	f := stitchForm{ConnectTimeout: r.PostFormValue("connect_timeout"), IdleTimeout: r.PostFormValue("idle_timeout")}
+	f := stitchForm{ConnectTimeout: r.PostFormValue("connect_timeout"), IdleTimeout: r.PostFormValue("idle_timeout"), MaxConnections: r.PostFormValue("max_connections")}
 	if name == "" {
 		name = strings.TrimSpace(r.PostFormValue("name"))
 	}
@@ -283,6 +287,13 @@ func parseStitchForm(r *http.Request, name string) (config.Stitch, stitchForm, e
 			errs = append(errs, fmt.Errorf("idle timeout %q is not a duration like 1h", d))
 		}
 		s.IdleTimeout = t
+	}
+	if m := strings.TrimSpace(f.MaxConnections); m != "" {
+		n, err := strconv.Atoi(m)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("max connections %q is not a whole number", m))
+		}
+		s.MaxConnections = n
 	}
 	s = s.WithDefaults()
 	f.Stitch = s

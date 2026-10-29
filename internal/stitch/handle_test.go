@@ -101,6 +101,28 @@ func TestRefusedDialsAreClosed(t *testing.T) {
 			t.Errorf("refused with %v, closed %v; want %v and closed", in.refusedBy, in.closed.Load(), errUpstreamUnavailable)
 		}
 	})
+	t.Run("at max_connections", func(t *testing.T) {
+		s := testStitch(config.AppDataPassthrough)
+		s.cfg.MaxConnections = 2
+		s.handling.Store(2) // two already open
+		in := &ingressConn{}
+		s.handle(in, nil, nil) // refused before the egress side is used
+		if in.refusedBy != errAtCapacity || !in.closed.Load() {
+			t.Errorf("refused with %v, closed %v; want %v and closed", in.refusedBy, in.closed.Load(), errAtCapacity)
+		}
+		if n := s.handling.Load(); n != 2 {
+			t.Errorf("%d connections counted after the refusal, want 2", n)
+		}
+
+		s.handling.Store(1) // room for one more
+		g := newGate(&fakeListener{}, boundAt(edge.PrecedenceDefault), neverBack, discard)
+		defer g.stop()
+		in = &ingressConn{}
+		s.handle(in, &egress{}, g)
+		if in.refusedBy != nil {
+			t.Errorf("refused below the limit: %v", in.refusedBy)
+		}
+	})
 	t.Run("loop", func(t *testing.T) {
 		s := testStitch(config.AppDataAnnotate)
 		in := &ingressConn{appData: []byte(`{"ziti_stitch":{"hops":8}}`)}

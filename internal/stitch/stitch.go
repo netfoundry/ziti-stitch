@@ -45,6 +45,7 @@ var (
 	errUpstreamUnavailable = errors.New(RefusalPrefix + "upstream service unavailable")
 	errLoopRefused         = errors.New(RefusalPrefix + "refused, the connection is looping between stitches")
 	errAppDataRefused      = errors.New(RefusalPrefix + "refused, app data must be a JSON object on this stitch")
+	errAtCapacity          = errors.New(RefusalPrefix + "refused, too many connections on this stitch")
 )
 
 const (
@@ -70,7 +71,8 @@ type Stitch struct {
 	from, to Network
 	log      *slog.Logger
 
-	conns sync.WaitGroup // connections in flight, for draining
+	conns    sync.WaitGroup // connections in flight, for draining
+	handling atomic.Int64   // connections in flight, for max_connections
 
 	// probeAppData is the ingress app data the gate's probe builds its
 	// own from, because a tunneler host on the egress side may reject a
@@ -270,6 +272,17 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		"a_circuit", in.GetCircuitId(),
 		"dialer_identity_id", in.GetDialerIdentityId(),
 		"dialer_identity_name", in.GetDialerIdentityName())
+
+	n := s.handling.Add(1)
+	defer s.handling.Add(-1)
+	// Counted from the accept, so dials still waiting on the egress side
+	// count too.
+	if limit := s.cfg.MaxConnections; limit > 0 && n > int64(limit) {
+		log.Warn("connection refused: the stitch has max_connections open", "max_connections", limit)
+		refuse(in, errAtCapacity)
+		s.track.failedOne(errAtCapacity)
+		return
+	}
 
 	inAppData := in.GetAppData()
 	appData, err := egressAppData(s.cfg.AppData, inAppData, s.cfg.Name, origin{
