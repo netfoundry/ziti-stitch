@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/openziti/edge-api/rest_model"
 	"github.com/openziti/sdk-golang/ziti"
 	"github.com/openziti/sdk-golang/ziti/edge"
 
@@ -54,7 +55,18 @@ func (egressConn) Close() error         { return nil }
 // egress is the egress network's context: its dials fail with err.
 type egress struct {
 	ziti.Context
-	err error
+	err    error
+	probed []byte // the app data of the last probe dial
+}
+
+// GetServiceTerminators fails, so the probe goes on to dial.
+func (*egress) GetServiceTerminators(string, int, int) ([]*rest_model.TerminatorClientDetail, int, error) {
+	return nil, 0, errors.New("unused")
+}
+
+func (e *egress) DialContextWithOptions(_ context.Context, _ string, o *ziti.DialOptions) (edge.Conn, error) {
+	e.probed = o.AppData
+	return egressConn{}, nil
 }
 
 func (e *egress) DialWithOptions(string, *ziti.DialOptions) (edge.Conn, error) {
@@ -107,9 +119,10 @@ func TestRefusedDialsAreClosed(t *testing.T) {
 	})
 }
 
-// The probe dials with the app data of the last successful egress dial,
-// so one client whose app data the egress host rejects cannot keep the
-// stitch gated. Before any success it uses the first failure's.
+// The probe builds its app data from the ingress app data of the last
+// connection whose egress dial succeeded, so one client whose app data the
+// egress host rejects cannot keep the stitch gated. Before any success it
+// uses the first failure's.
 func TestProbeAppData(t *testing.T) {
 	s := testStitch(config.AppDataPassthrough)
 	g := newGate(&fakeListener{}, boundAt(edge.PrecedenceDefault), neverBack, discard)
@@ -134,5 +147,22 @@ func TestProbeAppData(t *testing.T) {
 	dial("rejected-by-host", down)
 	if got := probe(); got != "good" {
 		t.Errorf("probe app data = %q, want good", got)
+	}
+}
+
+// With annotate, the probe's annotation names no dialer or circuit: the
+// egress side must not take a probe for the client whose app data it copies.
+func TestProbeNamesNoDialer(t *testing.T) {
+	s := testStitch(config.AppDataAnnotate)
+	g := newGate(&fakeListener{}, boundAt(edge.PrecedenceDefault), neverBack, discard)
+	defer g.stop()
+	e := &egress{}
+	s.handle(&ingressConn{appData: []byte(`{"dst_hostname":"db"}`)}, e, g)
+
+	if !s.egressReachable(context.Background(), e) {
+		t.Fatal("probe failed")
+	}
+	if want := `{"dst_hostname":"db","ziti_stitch":{"stitch":"s","hops":1}}`; string(e.probed) != want {
+		t.Errorf("probe app data = %s, want %s", e.probed, want)
 	}
 }

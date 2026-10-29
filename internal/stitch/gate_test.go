@@ -64,13 +64,32 @@ var discard = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 func neverBack(context.Context) bool { return false }
 
+// fail records a failed dial and waits for the probe that confirms it.
+func fail(t *testing.T, g *gate) {
+	t.Helper()
+	g.failed()
+	settle(t, g)
+}
+
+// settle waits for the confirming probe to finish.
+func settle(t *testing.T, g *gate) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for g.confirming.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("the confirming probe did not finish")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestGateLowersOnceAndRestoresOnSuccess(t *testing.T) {
 	l := &fakeListener{}
 	g := newGate(l, boundAt(edge.PrecedenceRequired), neverBack, discard)
 	defer g.stop()
 
 	g.ok() // nothing to restore yet
-	g.failed()
+	fail(t, g)
 	g.failed() // already down
 	g.ok()
 	g.ok()
@@ -81,11 +100,52 @@ func TestGateLowersOnceAndRestoresOnSuccess(t *testing.T) {
 	}
 }
 
+// A failed dial whose probe succeeds does not gate: the egress host may
+// have rejected that dialer's own app data.
+func TestGateConfirmsAFailureBeforeLowering(t *testing.T) {
+	l := &fakeListener{}
+	g := newGate(l, boundAt(edge.PrecedenceRequired), func(context.Context) bool { return true }, discard)
+	defer g.stop()
+
+	fail(t, g)
+	if g.isDown() || len(l.history()) != 0 {
+		t.Errorf("gated by one failure the probe did not confirm: down %v, updates %v", g.isDown(), l.history())
+	}
+}
+
+// While the confirming probe runs, more failures start no other probe,
+// and a dial that succeeds meanwhile means there is nothing to gate.
+func TestGateSuccessWhileConfirming(t *testing.T) {
+	l := &fakeListener{}
+	var calls atomic.Int32
+	release := make(chan struct{})
+	probe := func(context.Context) bool {
+		calls.Add(1)
+		<-release
+		return false
+	}
+	g := newGate(l, boundAt(edge.PrecedenceRequired), probe, discard)
+	defer g.stop()
+
+	g.failed()
+	g.failed()
+	g.failed()
+	g.ok()
+	close(release)
+	settle(t, g)
+	if n := calls.Load(); n != 1 {
+		t.Errorf("%d probes, want 1", n)
+	}
+	if g.isDown() || len(l.history()) != 0 {
+		t.Errorf("gated despite a dial that succeeded: down %v, updates %v", g.isDown(), l.history())
+	}
+}
+
 func TestGateDoesNothingWhenConfiguredFailed(t *testing.T) {
 	l := &fakeListener{}
 	g := newGate(l, boundAt(edge.PrecedenceFailed), neverBack, discard)
 	defer g.stop()
-	g.failed()
+	fail(t, g)
 	g.ok()
 	if got := l.history(); len(got) != 0 {
 		t.Errorf("updates = %v, want none", got)
@@ -95,7 +155,7 @@ func TestGateDoesNothingWhenConfiguredFailed(t *testing.T) {
 func TestGateProbeRestores(t *testing.T) {
 	l := &fakeListener{}
 	var calls atomic.Int32
-	probe := func(context.Context) bool { return calls.Add(1) >= 2 }
+	probe := func(context.Context) bool { return calls.Add(1) >= 3 }
 	g := newGate(l, boundAt(edge.PrecedenceDefault), probe, discard)
 	defer g.stop()
 
@@ -104,7 +164,8 @@ func TestGateProbeRestores(t *testing.T) {
 	for len(l.history()) < 3 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	// Lowered, lowered again after the first probe failed, restored.
+	// Lowered once the confirming probe failed, lowered again after the
+	// next one failed, restored.
 	want := []edge.Precedence{edge.PrecedenceFailed, edge.PrecedenceFailed, edge.PrecedenceDefault}
 	if got := l.history(); !slices.Equal(got, want) {
 		t.Errorf("updates = %v, want %v", got, want)
@@ -136,11 +197,12 @@ func TestGateLowersAgainWhileDown(t *testing.T) {
 func TestGateStopEndsProbing(t *testing.T) {
 	l := &fakeListener{}
 	var calls atomic.Int32
-	g := newGate(l, boundAt(edge.PrecedenceDefault), func(context.Context) bool { calls.Add(1); return true }, discard)
-	g.failed()
+	// Fails only the confirming probe.
+	g := newGate(l, boundAt(edge.PrecedenceDefault), func(context.Context) bool { return calls.Add(1) > 1 }, discard)
+	fail(t, g)
 	g.stop()
 	time.Sleep(probeMinInterval + 200*time.Millisecond)
-	if n := calls.Load(); n != 0 {
+	if n := calls.Load() - 1; n != 0 {
 		t.Errorf("probe ran %d times after stop", n)
 	}
 	g.ok()
@@ -175,7 +237,7 @@ func TestGateRetuneWhileDown(t *testing.T) {
 	g := newGate(l, boundAt(edge.PrecedenceDefault), neverBack, discard)
 	defer g.stop()
 
-	g.failed()
+	fail(t, g)
 	if err := g.retune(terms{precedence: edge.PrecedenceRequired, cost: 9}); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +257,7 @@ func TestGateRetuneToFailedEndsGating(t *testing.T) {
 	g := newGate(l, boundAt(edge.PrecedenceDefault), neverBack, discard)
 	defer g.stop()
 
-	g.failed()
+	fail(t, g)
 	if err := g.retune(boundAt(edge.PrecedenceFailed)); err != nil {
 		t.Fatal(err)
 	}

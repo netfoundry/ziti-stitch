@@ -72,11 +72,12 @@ type Stitch struct {
 
 	conns sync.WaitGroup // connections in flight, for draining
 
-	// probeAppData is what the gate's probe dials with, because a
-	// tunneler host on the egress side may reject a dial that carries
-	// none. It is the app data of the last egress dial that succeeded, so
-	// one client whose app data the host rejects cannot keep the stitch
-	// gated; until a dial has succeeded, that of the first failed one.
+	// probeAppData is the ingress app data the gate's probe builds its
+	// own from, because a tunneler host on the egress side may reject a
+	// dial that carries none. It is that of the last connection whose
+	// egress dial succeeded, so one client whose app data the host rejects
+	// cannot keep the stitch gated; until a dial has succeeded, that of
+	// the first failed one.
 	probeAppData atomic.Pointer[[]byte]
 
 	track tracker
@@ -270,7 +271,8 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		"dialer_identity_id", in.GetDialerIdentityId(),
 		"dialer_identity_name", in.GetDialerIdentityName())
 
-	appData, err := egressAppData(s.cfg.AppData, in.GetAppData(), s.cfg.Name, origin{
+	inAppData := in.GetAppData()
+	appData, err := egressAppData(s.cfg.AppData, inAppData, s.cfg.Name, origin{
 		dialerIdentityID:   in.GetDialerIdentityId(),
 		dialerIdentityName: in.GetDialerIdentityName(),
 		circuitID:          in.GetCircuitId(),
@@ -298,11 +300,11 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		log.Warn("connection failed: cannot reach the egress service", "error", err, "dial_time", time.Since(start))
 		refuse(in, errUpstreamUnavailable)
 		s.track.failedOne(fmt.Errorf("cannot reach %s: %w", s.cfg.To.Service, err))
-		s.probeAppData.CompareAndSwap(nil, &appData)
+		s.probeAppData.CompareAndSwap(nil, &inAppData)
 		g.failed()
 		return
 	}
-	s.probeAppData.Store(&appData)
+	s.probeAppData.Store(&inAppData)
 	g.ok()
 	log = log.With("b_circuit", out.GetCircuitId())
 
@@ -347,9 +349,15 @@ func (s *Stitch) egressReachable(ctx context.Context, zB ziti.Context) bool {
 	if terms, _, err := zB.GetServiceTerminators(s.cfg.To.Service, 0, 1); err == nil && len(terms) == 0 {
 		return false
 	}
-	var appData []byte
+	var in []byte
 	if p := s.probeAppData.Load(); p != nil {
-		appData = *p
+		in = *p
+	}
+	// With no origin: annotate then names no dialer or circuit, so the
+	// egress side does not take the probe for the client it copies.
+	appData, err := egressAppData(s.cfg.AppData, in, s.cfg.Name, origin{})
+	if err != nil {
+		return false // not reached: in passed egressAppData before it was kept
 	}
 	c, err := zB.DialContextWithOptions(ctx, s.cfg.To.Service, &ziti.DialOptions{
 		ConnectTimeout: s.cfg.To.ConnectTimeout,

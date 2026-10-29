@@ -55,6 +55,12 @@ type terms struct {
 // reach a standby. Precedence is ours to change on our own terminators, so
 // this needs no admin rights.
 //
+// One failed dial does not gate: it may be the dialer's own doing (app
+// data the egress host rejects, say), and any dialer could otherwise take
+// instances out of rotation at will. The gate first runs probe once, and
+// lowers precedence only if that fails too and no dial has succeeded
+// meanwhile.
+//
 // A gated instance learns the egress side is back in one of two ways: a
 // dial it still receives (it is still the last resort) succeeds, or probe
 // reports true. Probe runs on a backoff while gated.
@@ -71,9 +77,14 @@ type gate struct {
 	probe func(context.Context) bool
 	log   *slog.Logger
 
+	ctx    context.Context // done once the gate stops
+	cancel context.CancelFunc
+
 	// down is read without mu on every connection; mu serializes the
 	// changes, which talk to the router and can take seconds.
 	down        atomic.Bool
+	confirming  atomic.Bool   // a failed dial's probe is running
+	oks         atomic.Uint64 // successful dials, so confirming can tell one happened
 	mu          sync.Mutex
 	want        terms // the configured cost and precedence
 	stopped     bool
@@ -81,7 +92,8 @@ type gate struct {
 }
 
 func newGate(l tuner, bound terms, probe func(context.Context) bool, log *slog.Logger) *gate {
-	return &gate{l: l, bound: bound, want: bound, probe: probe, log: log}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &gate{l: l, bound: bound, want: bound, probe: probe, log: log, ctx: ctx, cancel: cancel}
 }
 
 // apply sends the cost and the precedence the terminators should have
@@ -94,11 +106,28 @@ func (g *gate) apply() error {
 	return g.l.UpdateCostAndPrecedence(g.want.cost, p)
 }
 
-// failed records a failed egress dial.
+// failed records a failed egress dial, and starts the probe that decides
+// whether to gate unless one is running already.
 func (g *gate) failed() {
-	if g.down.Load() {
+	if g.down.Load() || !g.confirming.CompareAndSwap(false, true) {
 		return
 	}
+	go g.confirmDown(g.oks.Load())
+}
+
+// confirmDown gates if the probe fails too and no dial has succeeded since
+// the failure, when oks had that value.
+func (g *gate) confirmDown(oks uint64) {
+	defer g.confirming.Store(false)
+	if g.probe(g.ctx) || g.oks.Load() != oks {
+		return
+	}
+	g.lower()
+}
+
+// lower drops the precedence to failed and probes until the egress
+// service is back.
+func (g *gate) lower() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.down.Load() || g.stopped || g.want.precedence == edge.PrecedenceFailed {
@@ -110,13 +139,14 @@ func (g *gate) failed() {
 	} else {
 		g.log.Warn("egress service unreachable; lowered precedence to failed so other instances get the dials")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(g.ctx)
 	g.cancelProbe = cancel
 	go g.probeUntilBack(ctx)
 }
 
 // ok records a successful egress dial.
 func (g *gate) ok() {
+	g.oks.Add(1)
 	if !g.down.Load() {
 		return
 	}
@@ -174,9 +204,7 @@ func (g *gate) stop() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.stopped = true
-	if g.cancelProbe != nil {
-		g.cancelProbe()
-	}
+	g.cancel()
 }
 
 func (g *gate) probeUntilBack(ctx context.Context) {
