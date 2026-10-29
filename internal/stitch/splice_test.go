@@ -204,6 +204,18 @@ func TestSpliceErrorClosesBoth(t *testing.T) {
 	waitSplice(t, done)
 }
 
+func TestActivity(t *testing.T) {
+	a := &activity{start: time.Now()}
+	time.Sleep(30 * time.Millisecond)
+	if d := a.idleFor(); d < 30*time.Millisecond {
+		t.Errorf("idle for %v after 30ms with nothing moving", d)
+	}
+	a.touch()
+	if d := a.idleFor(); d >= 30*time.Millisecond {
+		t.Errorf("idle for %v just after bytes moved", d)
+	}
+}
+
 func TestIdleCheckInterval(t *testing.T) {
 	tests := map[time.Duration]time.Duration{
 		20 * time.Millisecond: 10 * time.Millisecond,

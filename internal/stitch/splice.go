@@ -65,8 +65,7 @@ func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err erro
 	}
 	defer closeBoth()
 
-	var lastActive atomic.Int64
-	lastActive.Store(time.Now().UnixNano())
+	act := &activity{start: time.Now()}
 	var idled atomic.Bool
 
 	done := make(chan struct{})
@@ -78,8 +77,8 @@ func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err erro
 				select {
 				case <-done:
 					return
-				case now := <-t.C:
-					if now.Sub(time.Unix(0, lastActive.Load())) >= idle {
+				case <-t.C:
+					if act.idleFor() >= idle {
 						idled.Store(true)
 						closeBoth()
 						return
@@ -90,8 +89,8 @@ func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err erro
 	}
 
 	errs := make(chan error, 2)
-	go func() { errs <- copyHalf(b, a, toB, &lastActive) }()
-	go func() { errs <- copyHalf(a, b, toA, &lastActive) }()
+	go func() { errs <- copyHalf(b, a, toB, act) }()
+	go func() { errs <- copyHalf(a, b, toA, act) }()
 	// Only the first error says why: closing both makes the other
 	// direction fail too.
 	var first error
@@ -114,17 +113,32 @@ func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err erro
 	return err
 }
 
+// activity is when bytes last moved, kept as the time since start so that
+// it is measured on the monotonic clock: a jump in the wall clock (NTP
+// correcting a resumed VM, say) cannot make every connection look idle.
+type activity struct {
+	start time.Time
+	last  atomic.Int64 // time.Since(start) when bytes last moved
+}
+
+func (a *activity) touch() { a.last.Store(int64(time.Since(a.start))) }
+
+// idleFor is how long nothing has moved.
+func (a *activity) idleFor() time.Duration {
+	return time.Since(a.start) - time.Duration(a.last.Load())
+}
+
 // copyHalf copies src to dst until src ends, then closes dst's sending
-// half, or returns errClosed if src was closed outright. n and lastActive
-// are updated as bytes move.
-func copyHalf(dst, src halfConn, n, lastActive *atomic.Int64) error {
+// half, or returns errClosed if src was closed outright. n and act are
+// updated as bytes move.
+func copyHalf(dst, src halfConn, n *atomic.Int64, act *activity) error {
 	bp := copyBuffers.Get().(*[]byte)
 	defer copyBuffers.Put(bp)
 	buf := *bp
 	for {
 		nr, rerr := src.Read(buf)
 		if nr > 0 {
-			lastActive.Store(time.Now().UnixNano())
+			act.touch()
 			nw, werr := dst.Write(buf[:nr])
 			n.Add(int64(nw))
 			if werr != nil {
