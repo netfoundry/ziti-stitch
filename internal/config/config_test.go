@@ -464,3 +464,38 @@ func TestHealthListen(t *testing.T) {
 		}
 	}
 }
+
+func TestFallback(t *testing.T) {
+	t.Run("keeps valid log and health settings", func(t *testing.T) {
+		// The stitch names a network with no identity, so Load fails.
+		dir := writeDir(t, map[string]string{
+			ConfigFileName:   "log: {level: debug, format: json}\nhealth: {listen: ':8081'}\nweb: {listen: '127.0.0.1:8474'}\n",
+			StitchesFileName: "stitches:\n  - {name: s, from: {network: acme, service: a}, to: {network: partner, service: b}}\n",
+		})
+		if _, err := Load(dir); err == nil {
+			t.Fatal("Load succeeded; the test needs an invalid config")
+		}
+		fb := Fallback(dir)
+		if fb.Path != dir || fb.Config.Log != (Log{Level: "debug", Format: "json"}) || fb.Config.Health.Listen != ":8081" {
+			t.Errorf("fallback = %+v", fb)
+		}
+		if fb.Config.Web.Listen != "" || len(fb.Stitches) != 0 || len(fb.Networks) != 0 {
+			t.Errorf("fallback runs more than logging and health: %+v", fb)
+		}
+	})
+	t.Run("drops invalid settings", func(t *testing.T) {
+		dir := writeDir(t, map[string]string{ConfigFileName: "log: {level: loud}\nhealth: {listen: nowhere}\n"})
+		fb := Fallback(dir)
+		if fb.Config.Log != (Log{Level: "info", Format: "text"}) || fb.Config.Health.Listen != "" {
+			t.Errorf("fallback = %+v", fb.Config)
+		}
+	})
+	t.Run("config that does not parse", func(t *testing.T) {
+		t.Setenv(EnvConfigSource, "/etc/ziti-stitch-source")
+		dir := writeDir(t, map[string]string{ConfigFileName: "log: [\n"})
+		fb := Fallback(dir)
+		if fb.Config.Log != (Log{Level: "info", Format: "text"}) || fb.Source != "/etc/ziti-stitch-source" {
+			t.Errorf("fallback = %+v", fb)
+		}
+	})
+}

@@ -119,4 +119,4 @@ The config directory is left in place. Delete it to remove the identities' priva
 
 - `ziti-stitch validate` checks the config and, for every stitch, that its identities have the Bind and Dial permissions they need. Each problem names the policy that is missing.
 - `ziti-stitch network test <name>` lists what one identity can see.
-- An invalid config does not stop the service: it logs the problem and runs nothing until the config is fixed. Fix it and the change is picked up.
+- An invalid config does not stop the service: it logs the problem and runs nothing until the config is fixed, though health probes (if `health.listen` is valid) answer, reporting not ready. Fix it and the change is picked up, the web UI included.

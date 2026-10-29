@@ -87,7 +87,7 @@ immediately.`,
 			// for the fix, exactly as for a bad change while running.
 			d, loadErr := config.Load(dir)
 			if loadErr != nil {
-				d = &config.Dir{Path: dir, Config: config.Config{Log: config.Log{Level: "info", Format: "text"}}}
+				d = config.Fallback(dir)
 			}
 
 			var w io.Writer = cmd.ErrOrStderr()
@@ -144,16 +144,36 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, valid bool, log
 	r := runner.New(log)
 	r.Apply(d)
 	logRunning(log, d)
-	if d.Config.Web.Listen != "" || d.Config.Web.Ziti != nil {
-		startWeb(ctx, d, r, rec, log)
-	}
 	// Ready once a valid configuration runs; a later invalid change keeps
 	// the valid one running, so it stays ready.
 	var configOK atomic.Bool
 	configOK.Store(valid)
-	if l := d.Config.Health.Listen; l != "" {
-		startHealth(ctx, l, r, configOK.Load, log)
+
+	// The web UI and health probes start with the first configuration that
+	// has them: a later one when the one at startup was not valid. Where
+	// they listen is fixed from then on; prev is the configuration d
+	// replaces, so that a change is warned about once.
+	var webOn *config.Web
+	var healthOn string
+	listen := func(prev, d *config.Dir) {
+		switch w := d.Config.Web; {
+		case webOn == nil && (w.Listen != "" || w.Ziti != nil):
+			webOn = &w
+			startWeb(ctx, d, r, rec, log)
+		case webOn != nil && !w.SameListeners(*webOn) && !w.SameListeners(prev.Config.Web):
+			// Who may use the UI (web.ziti.allow, policy_access) applies at
+			// once; only where it listens needs a restart.
+			log.Warn("changes to where the web UI listens take effect after a restart")
+		}
+		switch h := d.Config.Health.Listen; {
+		case healthOn == "" && h != "":
+			healthOn = h
+			startHealth(ctx, h, r, configOK.Load, log)
+		case healthOn != "" && h != healthOn && h != prev.Config.Health.Listen:
+			log.Warn("health.listen changes take effect after a restart")
+		}
 	}
+	listen(d, d)
 
 	reload := make(chan struct{}, 1)
 	requestReload := func() {
@@ -183,9 +203,11 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, valid bool, log
 			log.Info("stopped")
 			return
 		case <-hup:
-			d = reloadConfig(d, r, log, setLevel, &configOK)
 		case <-reload:
-			d = reloadConfig(d, r, log, setLevel, &configOK)
+		}
+		if nd := reloadConfig(d, r, log, setLevel, &configOK); nd != d {
+			listen(d, nd)
+			d = nd
 		}
 	}
 }
@@ -234,14 +256,6 @@ func reloadConfig(cur *config.Dir, r *runner.Runner, log *slog.Logger, setLevel 
 	}
 	if d.Config.Log.Format != cur.Config.Log.Format {
 		log.Warn("log.format changes take effect after a restart", "format", cur.Config.Log.Format)
-	}
-	if !d.Config.Web.SameListeners(cur.Config.Web) {
-		// Who may use the UI (web.ziti.allow, policy_access) applies at
-		// once; only where it listens needs a restart.
-		log.Warn("changes to where the web UI listens take effect after a restart")
-	}
-	if d.Config.Health.Listen != cur.Config.Health.Listen {
-		log.Warn("health.listen changes take effect after a restart")
 	}
 	if c := r.Apply(d); c != (runner.Changes{}) {
 		log.Info("configuration applied", "started", c.Started, "restarted", c.Restarted, "retuned", c.Retuned, "stopped", c.Stopped)

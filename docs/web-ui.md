@@ -19,7 +19,7 @@ web:
   listen: 127.0.0.1:8474
 ```
 
-Add this to `config.yaml` in the config directory and restart ziti-stitch. `listen` must be a loopback address (`127.0.0.1`, `::1` or `localhost`): ziti-stitch does not serve the UI on a network interface.
+Add this to `config.yaml` in the config directory; a running ziti-stitch starts the UI on its own. Moving it to another address later needs a restart. `listen` must be a loopback address (`127.0.0.1`, `::1` or `localhost`): ziti-stitch does not serve the UI on a network interface.
 
 To sign in, run this on the same machine, as a user who can change the configuration:
 

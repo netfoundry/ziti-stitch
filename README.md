@@ -105,7 +105,7 @@ web:
 
 It shows the stitches, networks, open connections and recent events, lets you add, edit, enable, disable and remove stitches, and tests what each network's identity can do. Enrolling stays in the CLI.
 
-There are no passwords. On loopback, `ziti-stitch web login` (with `sudo` if the config belongs to root) prints a link that works once, for five minutes; only someone who can write the config directory can make one. Over Ziti, the router-verified identity of whoever dialed decides: identities in `allow` get full access, and `policy_access` says what everyone else the service policy admits gets. Changes to `allow` and `policy_access` apply at once; where the UI listens needs a restart. Login links work over Ziti too. All the ways to reach the UI, and who ends up in control with each, are in [docs/web-ui.md](docs/web-ui.md).
+There are no passwords. On loopback, `ziti-stitch web login` (with `sudo` if the config belongs to root) prints a link that works once, for five minutes; only someone who can write the config directory can make one. Over Ziti, the router-verified identity of whoever dialed decides: identities in `allow` get full access, and `policy_access` says what everyone else the service policy admits gets. Turning the UI on, and changes to `allow` and `policy_access`, apply at once; moving it to another address or service needs a restart. Login links work over Ziti too. All the ways to reach the UI, and who ends up in control with each, are in [docs/web-ui.md](docs/web-ui.md).
 
 ## High availability
 

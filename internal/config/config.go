@@ -203,6 +203,29 @@ func Load(path string) (*Dir, error) {
 	return d, nil
 }
 
+// Fallback is what runs while the configuration at path does not load: no
+// stitches and no web UI, but the log settings and health endpoint from
+// config.yaml when it parses and they are valid. Logs then keep their
+// format, and a supervisor sees the process alive but not ready rather
+// than restarting it.
+func Fallback(path string) *Dir {
+	fb := &Dir{Path: path, Source: os.Getenv(EnvConfigSource)}
+	fb.applyDefaults()
+	d, err := Read(path)
+	if err != nil {
+		return fb
+	}
+	var p problems
+	if d.validateLog(&p); len(p) == 0 {
+		fb.Config.Log = d.Config.Log
+	}
+	p = nil
+	if d.validateHealth(&p); len(p) == 0 {
+		fb.Config.Health = d.Config.Health
+	}
+	return fb
+}
+
 // Read reads the config directory at path and fills in defaults, without
 // validating the stitches. Commands that change the config use it, so that
 // a config that is already broken can still be fixed; they validate the
