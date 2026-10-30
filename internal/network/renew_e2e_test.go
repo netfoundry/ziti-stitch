@@ -130,8 +130,12 @@ func TestRenewInPlaceKeepsServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	leaf, err := currentCert(clt)
+	if err != nil {
+		t.Fatal(err)
+	}
 	n.fileMu.Lock()
-	err = n.renew(ctx, clt, *cur.Payload.Data.AuthenticatorID)
+	err = n.renew(ctx, clt, *cur.Payload.Data.AuthenticatorID, leaf.Subject.CommonName)
 	n.fileMu.Unlock()
 	if err != nil {
 		t.Fatalf("renew: %v", err)

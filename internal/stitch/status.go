@@ -78,7 +78,7 @@ type tracker struct {
 type liveConn struct {
 	info                ConnStatus
 	toEgress, toIngress atomic.Int64
-	close               func() // closes both sides
+	closer              func() // closes both sides
 }
 
 func (t *tracker) setState(s State) {
@@ -108,21 +108,21 @@ func (t *tracker) failedOne(err error) {
 	t.err, t.errAt = err.Error(), time.Now()
 }
 
-// opened registers an open connection, which close closes, and returns it
+// opened registers an open connection, which closer closes, and returns it
 // with the id to report its end by. After closeAll it is closed at once.
-func (t *tracker) opened(info ConnStatus, close func()) (uint64, *liveConn) {
+func (t *tracker) opened(info ConnStatus, closer func()) (uint64, *liveConn) {
 	t.mu.Lock()
 	if t.open == nil {
 		t.open = map[uint64]*liveConn{}
 	}
 	t.nextID++
 	id := t.nextID // read under mu: another opened may move nextID on
-	c := &liveConn{info: info, close: close}
+	c := &liveConn{info: info, closer: closer}
 	t.open[id] = c
 	closing := t.closing
 	t.mu.Unlock()
 	if closing {
-		close()
+		closer()
 	}
 	return id, c
 }
@@ -138,7 +138,7 @@ func (t *tracker) closeAll() int {
 	}
 	t.mu.Unlock()
 	for _, c := range open {
-		c.close()
+		c.closer()
 	}
 	return len(open)
 }

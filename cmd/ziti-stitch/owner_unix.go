@@ -133,11 +133,13 @@ func lookupUser(name string) (uid, gid int, err error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("--user %s: %w", name, err)
 	}
-	if uid, err = strconv.Atoi(u.Uid); err != nil {
+	u32, err := strconv.ParseUint(u.Uid, 10, 32)
+	if err != nil {
 		return 0, 0, fmt.Errorf("--user %s: unexpected uid %q", name, u.Uid)
 	}
-	if gid, err = strconv.Atoi(u.Gid); err != nil {
+	g32, err := strconv.ParseUint(u.Gid, 10, 32)
+	if err != nil {
 		return 0, 0, fmt.Errorf("--user %s: unexpected gid %q", name, u.Gid)
 	}
-	return uid, gid, nil
+	return int(u32), int(g32), nil
 }

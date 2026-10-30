@@ -146,6 +146,7 @@ func Enroll(token string) ([]byte, error) {
 	return raw, err
 }
 
+// enrollToken is Enroll without the timeout.
 func enrollToken(token string) ([]byte, error) {
 	claims, jwtToken, err := enroll.ParseToken(token)
 	if err != nil {

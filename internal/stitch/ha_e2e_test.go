@@ -135,10 +135,11 @@ func TestTwoInstances(t *testing.T) {
 	t.Run("a primary that cannot reach the egress side hands over", func(t *testing.T) {
 		// Instance 1 comes back as the required primary, dialing a service
 		// nobody hosts on B: the gate must drop its precedence once its
-		// probe confirms the first failure, so the standby gets the dials. Dials made before the
-		// router has passed the change on to the controller still fail,
-		// and back-to-back dials can fit several into that moment, so the
-		// test allows a short window and then wants every dial to work.
+		// probe confirms the first failure, so the standby gets the dials.
+		// Dials made before the router has passed the change on to the
+		// controller still fail, and back-to-back dials can fit several
+		// into that moment, so the test allows a short window and then
+		// wants every dial to work.
 		i1 = startInstance(ctx, haStitch(config.PrecedenceRequired, "ha-nobody-hosts"), a1, b1, log)
 		defer i1.stop()
 		waitListening(t, i1)

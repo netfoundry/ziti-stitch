@@ -70,6 +70,8 @@ func TestLockWaitsForTheHolder(t *testing.T) {
 		t.Fatalf("second Lock: err = %v, want still in progress", err)
 	}
 
+	// Plenty of time now: this Lock must wait for the holder, not give up.
+	lockWait = 10 * time.Second
 	time.AfterFunc(50*time.Millisecond, unlock)
 	unlock, err = Lock(dir)
 	if err != nil {

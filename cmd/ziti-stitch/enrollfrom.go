@@ -55,7 +55,7 @@ func enrollFrom(dir, prefix string, d *config.Dir, out io.Writer) error {
 	}
 	added := map[string]bool{}
 	var unused []string // .json files, which hold private keys
-	skip := func(file, ext string) {
+	noteUnused := func(file, ext string) {
 		if ext == ".json" {
 			unused = append(unused, file)
 		}
@@ -70,7 +70,7 @@ func enrollFrom(dir, prefix string, d *config.Dir, out io.Writer) error {
 		if prefix != "" {
 			var ours bool
 			if name, ours = strings.CutPrefix(name, prefix+"."); !ours {
-				skip(file, ext)
+				noteUnused(file, ext)
 				continue
 			}
 		}
@@ -79,7 +79,7 @@ func enrollFrom(dir, prefix string, d *config.Dir, out io.Writer) error {
 			return fmt.Errorf("%s: %q is not a valid network name (%s)", path, name, config.NameRule)
 		}
 		if _, ok := d.Network(name); ok || added[name] {
-			skip(file, ext)
+			noteUnused(file, ext)
 			continue
 		}
 		if err := config.CheckNewNetworkName(name); err != nil {
