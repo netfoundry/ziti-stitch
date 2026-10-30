@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -47,7 +48,7 @@ const drainTimeout = 30 * time.Second
 const eventsKept = 2000
 
 func newRunCmd(configDir *string) *cobra.Command {
-	var logFile, enrollDir string
+	var logFile, enrollDir, enrollFor string
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run every enabled stitch until stopped",
@@ -69,12 +70,15 @@ immediately.`,
 			if err != nil {
 				return err
 			}
+			if enrollFor != "" && enrollDir == "" {
+				return errors.New("--enroll-for needs --enroll-from")
+			}
 			if enrollDir != "" {
 				d, err := createDir(dir)
 				if err != nil {
 					return err
 				}
-				if err := enrollFrom(enrollDir, d, cmd.ErrOrStderr()); err != nil {
+				if err := enrollFrom(enrollDir, enrollFor, d, cmd.ErrOrStderr()); err != nil {
 					return err
 				}
 			}
@@ -124,6 +128,7 @@ immediately.`,
 	}
 	cmd.Flags().StringVar(&logFile, "log-file", "", "log to this file, rotated at 10 MB with 5 kept, instead of stderr")
 	cmd.Flags().StringVar(&enrollDir, "enroll-from", "", "first add the networks in this directory that are not in the config yet: <network>.jwt is enrolled, <network>.json copied (for Kubernetes)")
+	cmd.Flags().StringVar(&enrollFor, "enroll-for", "", "with --enroll-from, use only <name>.<network>.jwt and .json, so one directory can serve several instances (Kubernetes: the pod name)")
 	return cmd
 }
 

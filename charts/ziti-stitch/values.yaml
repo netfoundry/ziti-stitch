@@ -30,11 +30,12 @@ stitches: []
 #   <fullname>-<ordinal>.<network>.jwt   a one-time enrollment token
 #   <fullname>-<ordinal>.<network>.json  or an identity already enrolled
 # e.g. ziti-stitch-0.acme.jwt, ziti-stitch-1.acme.jwt, ziti-stitch-0.partner.jwt
-# The enrolled identity and its renewed certificates live on the replica's
-# volume; the Secret is only read while a network is missing there.
+# Each pod reads only its own keys. The enrolled identity and its renewed
+# certificates live on the replica's volume, and the Secret is only read
+# while a network is missing there: once every replica has started it can
+# be deleted (its tokens are spent; a .json would still hold a private key).
 enrollment:
   secretName: ""
-  networks: []  # e.g. [acme, partner]; required with secretName
 
 health:
   port: 8081

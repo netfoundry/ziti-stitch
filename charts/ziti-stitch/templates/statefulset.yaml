@@ -1,7 +1,4 @@
 {{- $fullname := include "ziti-stitch.fullname" . -}}
-{{- if and .Values.enrollment.secretName (not .Values.enrollment.networks) }}
-{{- fail "enrollment.networks must list the networks to enroll from enrollment.secretName, e.g. [acme, partner]" }}
-{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -45,7 +42,8 @@ spec:
           args:
             - run
             {{- if .Values.enrollment.secretName }}
-            - --enroll-from=/enroll/$(POD_NAME)
+            - --enroll-from=/enroll
+            - --enroll-for=$(POD_NAME)
             {{- end }}
           env:
             - name: POD_NAME
@@ -102,20 +100,14 @@ spec:
           configMap:
             name: {{ $fullname }}
         {{- if .Values.enrollment.secretName }}
+        # The whole Secret: each pod picks its own keys by name
+        # (--enroll-for), so the pod template does not depend on
+        # replicaCount and scaling restarts nothing.
         - name: enroll
           secret:
             secretName: {{ .Values.enrollment.secretName }}
-            # Keys for networks a replica already has may be gone.
+            # Deleted once every replica has enrolled; pods still start.
             optional: true
-            items:
-              {{- range $i := until (int .Values.replicaCount) }}
-              {{- range $net := $.Values.enrollment.networks }}
-              {{- range $ext := list "jwt" "json" }}
-              - key: {{ printf "%s-%d.%s.%s" $fullname $i $net $ext }}
-                path: {{ printf "%s-%d/%s.%s" $fullname $i $net $ext }}
-              {{- end }}
-              {{- end }}
-              {{- end }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

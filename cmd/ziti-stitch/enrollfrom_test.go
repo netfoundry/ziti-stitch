@@ -52,7 +52,7 @@ func TestEnrollFrom(t *testing.T) {
 	}
 	acmeBefore, _ := os.ReadFile(d.IdentityPath("acme"))
 	var out bytes.Buffer
-	if err := enrollFrom(src, d, &out); err != nil {
+	if err := enrollFrom(src, "", d, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `Added network "other"`) {
@@ -65,19 +65,59 @@ func TestEnrollFrom(t *testing.T) {
 		t.Error("an existing network's identity was replaced")
 	}
 
-	// Run again, as on every start: nothing more to do.
+	// Run again, as on every start: nothing more to add, but other.json
+	// holds a private key that is not needed any more.
 	d, _ = config.Read(dir)
 	out.Reset()
-	if err := enrollFrom(src, d, &out); err != nil || out.Len() != 0 {
+	if err := enrollFrom(src, "", d, &out); err != nil || strings.Contains(out.String(), "Added") || !strings.Contains(out.String(), "does not use (other.json)") {
 		t.Errorf("second run: %q, %v", out.String(), err)
 	}
 
 	// A token that cannot be redeemed stops startup.
 	put("newnet.jwt", []byte("not a jwt"))
-	if err := enrollFrom(src, d, &out); err == nil || !strings.Contains(err.Error(), "newnet") {
+	if err := enrollFrom(src, "", d, &out); err == nil || !strings.Contains(err.Error(), "newnet") {
 		t.Errorf("bad token: err = %v", err)
 	}
-	if err := enrollFrom(filepath.Join(src, "missing"), d, &out); err != nil {
+	if err := enrollFrom(filepath.Join(src, "missing"), "", d, &out); err != nil {
 		t.Errorf("a missing directory: %v", err)
+	}
+}
+
+// In Kubernetes one Secret holds every pod's files, prefixed with the
+// pod's name; a pod uses only its own.
+func TestEnrollFromWithPrefix(t *testing.T) {
+	dir := twoNetworkDir(t) // acme and partner
+	src := t.TempDir()
+	put := func(name string, b []byte) {
+		if err := os.WriteFile(filepath.Join(src, name), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other, err := os.ReadFile(identityFile(t, "https://ctrl.other.example.com", time.Now().AddDate(1, 0, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put("zs-1.other.json", other)
+	put("zs-10.other.json", other)             // another pod, not a prefix match
+	put("zs-0.other.jwt", []byte("not a jwt")) // another pod's token: never touched
+	put("zs-1.acme.jwt", []byte("not a jwt"))  // already there: never redeemed
+
+	d, err := config.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := enrollFrom(src, "zs-1", d, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `Added network "other"`) {
+		t.Errorf("output = %q", out.String())
+	}
+	if !strings.Contains(out.String(), "does not use (zs-10.other.json)") {
+		t.Errorf("no warning about another pod's identity: %q", out.String())
+	}
+	d, _ = config.Read(dir)
+	if _, ok := d.Network("zs-1.other"); ok {
+		t.Error("the prefix was kept in the network name")
 	}
 }

@@ -9,4 +9,3 @@ stitches:
     app_data: annotate
 enrollment:
   secretName: ziti-stitch-enroll
-  networks: [acme, partner]

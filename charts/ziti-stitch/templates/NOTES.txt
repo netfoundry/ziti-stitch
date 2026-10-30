@@ -10,7 +10,7 @@ replica and network, e.g.:
     --from-file={{ include "ziti-stitch.fullname" $ }}-{{ $i }}.<network>.jwt=<token file> \
 {{- end }}
 
-and set enrollment.secretName and enrollment.networks.
+and set enrollment.secretName.
 {{- end }}
 
 Status:   kubectl logs {{ include "ziti-stitch.fullname" . }}-0

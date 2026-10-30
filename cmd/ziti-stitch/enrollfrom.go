@@ -32,13 +32,20 @@ import (
 
 // enrollFrom adds the networks named by the files in dir that d does not
 // have yet: <network>.jwt is enrolled, <network>.json (an identity already
-// enrolled) is copied. Networks d has are left alone, so it is safe on
-// every start: a renewed certificate is never replaced by the original.
-// A missing dir is not an error; a token that cannot be redeemed is.
+// enrolled) is copied. With prefix set, only <prefix>.<network>.jwt and
+// .json count, so one directory can hold every instance's. Networks d has
+// are left alone, so it is safe on every start: a renewed certificate is
+// never replaced by the original. A missing dir is not an error; a token
+// that cannot be redeemed is.
 //
-// It is for Kubernetes, where a Secret holds each pod's tokens; Secret
-// volumes also hold hidden entries (..data), which are skipped.
-func enrollFrom(dir string, d *config.Dir, out io.Writer) error {
+// It warns about the .json files it did not use (another instance's, or
+// one for a network d already has): they hold private keys nothing here
+// needs, which should be removed.
+//
+// It is for Kubernetes, where a Secret holds every pod's tokens, prefixed
+// with the pod's name; Secret volumes also hold hidden entries (..data),
+// which are skipped.
+func enrollFrom(dir, prefix string, d *config.Dir, out io.Writer) error {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -47,18 +54,32 @@ func enrollFrom(dir string, d *config.Dir, out io.Writer) error {
 		return err
 	}
 	added := map[string]bool{}
+	var unused []string // .json files, which hold private keys
+	skip := func(file, ext string) {
+		if ext == ".json" {
+			unused = append(unused, file)
+		}
+	}
 	for _, e := range entries {
 		file := e.Name()
 		ext := filepath.Ext(file)
-		name := strings.TrimSuffix(file, ext)
 		if strings.HasPrefix(file, ".") || (ext != ".jwt" && ext != ".json") {
 			continue
+		}
+		name := strings.TrimSuffix(file, ext)
+		if prefix != "" {
+			var ours bool
+			if name, ours = strings.CutPrefix(name, prefix+"."); !ours {
+				skip(file, ext)
+				continue
+			}
 		}
 		path := filepath.Join(dir, file)
 		if !config.ValidName(name) {
 			return fmt.Errorf("%s: %q is not a valid network name (%s)", path, name, config.NameRule)
 		}
 		if _, ok := d.Network(name); ok || added[name] {
+			skip(file, ext)
 			continue
 		}
 		var raw []byte
@@ -91,6 +112,9 @@ func enrollFrom(dir string, d *config.Dir, out io.Writer) error {
 			verb = "Added"
 		}
 		fmt.Fprintf(out, "%s network %q from %s.\n", verb, name, path)
+	}
+	if len(unused) > 0 {
+		fmt.Fprintf(out, "warning: %s holds enrolled identities this instance does not use (%s). They contain private keys: remove them once every instance has started.\n", dir, strings.Join(unused, ", "))
 	}
 	return nil
 }

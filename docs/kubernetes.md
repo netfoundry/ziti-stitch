@@ -30,7 +30,6 @@ Clients reach ziti-stitch over Ziti, never through Kubernetes, so the chart crea
    replicaCount: 2
    enrollment:
      secretName: ziti-stitch-enroll
-     networks: [acme, partner]
    stitches:
      - name: billing
        from: {network: acme, service: billing-api}
@@ -48,7 +47,7 @@ Clients reach ziti-stitch over Ziti, never through Kubernetes, so the chart crea
    helm install ziti-stitch oci://ghcr.io/netfoundry/charts/ziti-stitch --version <version> -f values.yaml
    ```
 
-Each pod enrolls its identities on its first start, then runs. On later starts it uses what is on its volume and does not read the Secret, which can be deleted once every replica has started. A token that cannot be redeemed (used already, expired) stops the pod with an error naming the network.
+Each pod enrolls its identities on its first start, using only the keys named after it, then runs. On later starts it uses what is on its volume and does not read the Secret, which can be deleted once every replica has started; pods keep starting without it. A token that cannot be redeemed (used already, expired) stops the pod with an error naming the network.
 
 ## Changing the stitches
 
@@ -98,15 +97,15 @@ helm upgrade ziti-stitch oci://ghcr.io/netfoundry/charts/ziti-stitch --version <
 
 ## Scaling
 
-- **Adding a replica:** add tokens for the new pod (`ziti-stitch-2.acme.jwt` and so on) to the Secret, then raise `replicaCount`.
+- **Adding a replica:** add tokens for the new pod (`ziti-stitch-2.acme.jwt` and so on) to the Secret, then raise `replicaCount`. The existing pods are not restarted.
 - **Removing one:** lower `replicaCount`. Its volume stays, with its identities; delete the PersistentVolumeClaim (`config-ziti-stitch-2`) and ask the network admins to delete those identities.
-- **Starting a replica over** with new identities: delete its PersistentVolumeClaim and pod, and put fresh tokens in the Secret.
+- **Starting a replica over** with new identities: delete its PersistentVolumeClaim and pod, and put fresh tokens in the Secret. The same goes for a replica whose volume is lost: it needs a new token for every network. Old tokens are spent, and an old `.json` stops working once ziti-stitch has renewed its certificate.
 
 ## Security
 
 - The pods run as a non-root user with a read-only root filesystem, no capabilities and no service account token. ziti-stitch needs nothing from the Kubernetes API.
 - The identities' private keys live on the pods' volumes. Protect the storage, and the namespace, accordingly.
-- The tokens in the Secret work once each. After every replica has started they are spent and the Secret can go.
+- Every pod mounts the whole Secret, though each uses only the keys named after it. The tokens in it work once each; after every replica has started they are spent and the Secret can go. A `<pod>.<network>.json` holds a private key for as long as it stays there, readable by every pod; ziti-stitch warns at startup about any it does not use. Prefer tokens, and delete the Secret once every replica has started.
 - The health port answers with counts only, no names.
 
 ## Without Helm
@@ -123,4 +122,4 @@ docker run -d --name ziti-stitch \
 
 - `/config` holds the identities and their renewed certificates, so it must be writable by user 65532. A new named volume, as above, is. A bind mount must be made so: `chown 65532:65532` the host directory.
 - `ZITI_STITCH_CONFIG_SOURCE` is optional. Without it, `config.yaml` and `stitches.yaml` live in `/config` too, and can be edited with `docker exec ziti-stitch ziti-stitch stitch ...`.
-- `--enroll-from` enrolls `<network>.jwt` (or adds `<network>.json`) for each network not yet in `/config`.
+- `--enroll-from` enrolls `<network>.jwt` (or adds `<network>.json`) for each network not yet in `/config`. With `--enroll-for <name>` it uses only `<name>.<network>.jwt` (or `.json`), so one directory can serve several instances; the chart passes the pod's name.
