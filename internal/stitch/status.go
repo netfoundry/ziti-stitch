@@ -116,14 +116,15 @@ func (t *tracker) opened(info ConnStatus, close func()) (uint64, *liveConn) {
 		t.open = map[uint64]*liveConn{}
 	}
 	t.nextID++
+	id := t.nextID // read under mu: another opened may move nextID on
 	c := &liveConn{info: info, close: close}
-	t.open[t.nextID] = c
+	t.open[id] = c
 	closing := t.closing
 	t.mu.Unlock()
 	if closing {
 		close()
 	}
-	return t.nextID, c
+	return id, c
 }
 
 // closeAll closes every open connection, and any opened later, and

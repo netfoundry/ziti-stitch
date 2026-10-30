@@ -18,6 +18,7 @@ package stitch
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -94,5 +95,33 @@ func TestTrackerCloseAll(t *testing.T) {
 	tr.opened(ConnStatus{ACircuit: "a3"}, closer("a3"))
 	if len(closed) != 2 || closed[1] != "a3" {
 		t.Errorf("closed %v; a connection opened after closeAll stayed open", closed)
+	}
+}
+
+// Connections opened at the same moment get ids of their own, or closing
+// one would drop another's entry and leave a phantom.
+func TestTrackerIDsAreUniqueUnderConcurrency(t *testing.T) {
+	var tr tracker
+	const n = 200
+	ids := make(chan uint64, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			id, _ := tr.opened(ConnStatus{}, func() {})
+			ids <- id
+		})
+	}
+	wg.Wait()
+	close(ids)
+	seen := map[uint64]bool{}
+	for id := range ids {
+		if seen[id] {
+			t.Fatalf("id %d given twice", id)
+		}
+		seen[id] = true
+		tr.closed(id)
+	}
+	if st := tr.status(); st.Active != 0 {
+		t.Errorf("%d connections still open after every one closed", st.Active)
 	}
 }
