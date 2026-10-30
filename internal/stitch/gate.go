@@ -119,21 +119,28 @@ func (g *gate) failed() {
 // the failure, when oks had that value.
 func (g *gate) confirmDown(oks uint64) {
 	defer g.confirming.Store(false)
-	if g.probe(g.ctx) || g.oks.Load() != oks {
+	if g.probe(g.ctx) {
 		return
 	}
-	g.lower()
+	g.lower(oks)
 }
 
 // lower drops the precedence to failed and probes until the egress
-// service is back.
-func (g *gate) lower() {
+// service is back, unless a dial has succeeded since oks was read.
+func (g *gate) lower(oks uint64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.down.Load() || g.stopped || g.want.precedence == edge.PrecedenceFailed {
 		return
 	}
+	// down before the count: ok counts before it looks at down, so a
+	// success either shows in the count here or finds down set and
+	// restores the precedence itself.
 	g.down.Store(true)
+	if g.oks.Load() != oks {
+		g.down.Store(false)
+		return
+	}
 	if err := g.apply(); err != nil {
 		g.log.Error("egress service unreachable, and lowering precedence failed", "error", err)
 	} else {
