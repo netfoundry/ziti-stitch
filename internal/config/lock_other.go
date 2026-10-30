@@ -32,11 +32,18 @@ func tryLock(path string) (unlock func(), err error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); {
+	case err == nil:
+	case errors.Is(err, syscall.EWOULDBLOCK):
 		f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, errLocked
-		}
+		return nil, errLocked
+	case errors.Is(err, syscall.ENOTSUP), errors.Is(err, syscall.EOPNOTSUPP), errors.Is(err, syscall.ENOLCK):
+		// A filesystem without locks (some network and FUSE mounts):
+		// going without is better than every change, certificate
+		// renewals included, failing until the certificate expires.
+		return func() { f.Close() }, nil
+	default:
+		f.Close()
 		return nil, err
 	}
 	// Closing the last descriptor of an open releases its lock.

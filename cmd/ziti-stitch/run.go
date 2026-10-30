@@ -74,11 +74,13 @@ immediately.`,
 				return errors.New("--enroll-for needs --enroll-from")
 			}
 			if enrollDir != "" {
-				d, err := createDir(dir)
+				d, unlock, err := lockDir(dir, true)
 				if err != nil {
 					return err
 				}
-				if err := enrollFrom(enrollDir, enrollFor, d, cmd.ErrOrStderr()); err != nil {
+				err = enrollFrom(enrollDir, enrollFor, d, cmd.ErrOrStderr())
+				unlock()
+				if err != nil {
 					return err
 				}
 			}

@@ -118,12 +118,10 @@ from the controller's host name (ctrl.acme.example.com gives "acme").`,
 			if err != nil {
 				return err
 			}
-			// Held while the token is redeemed, so the name stays free.
-			d, unlock, err := lockDir(*configDir, true)
+			d, err := createDir(*configDir)
 			if err != nil {
 				return err
 			}
-			defer unlock()
 			name, err := chooseName(d, name, controller)
 			if err != nil {
 				return err
@@ -133,6 +131,17 @@ from the controller's host name (ctrl.acme.example.com gives "acme").`,
 			raw, err := network.Enroll(token)
 			if err != nil {
 				return err
+			}
+			// Locked only now: redeeming can take minutes, and every other
+			// change waits on the lock, the running instance's included.
+			// So the name is checked again under it.
+			d, unlock, err := lockDir(*configDir, false)
+			if err != nil {
+				return fmt.Errorf("enrolled, but saving the identity failed: %w", err)
+			}
+			defer unlock()
+			if _, taken := d.Network(name); taken {
+				return fmt.Errorf("network %q was added while this one enrolled, so the new identity was not saved; its token is spent, so ask for a new one", name)
 			}
 			if err := atomicfile.WriteFile(d.IdentityPath(name), raw, network.IdentityFilePerm); err != nil {
 				return fmt.Errorf("enrolled, but saving the identity failed: %w", err)
