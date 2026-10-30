@@ -370,14 +370,16 @@ func refuse(in edge.Conn, reason error) {
 // Until a dial has succeeded there is no app data known to be good, and
 // the failed dial's may be what failed (a client's, which the host
 // rejects): probing with it would gate the stitch for that client's sake,
-// and keep it gated. So until then only missing terminators count.
+// and keep it gated. So until then only the terminators count: none, or
+// none that can be listed (a service this identity cannot see).
 func (s *Stitch) egressReachable(ctx context.Context, zB ziti.Context) bool {
-	if terms, _, err := zB.GetServiceTerminators(s.cfg.To.Service, 0, 1); err == nil && len(terms) == 0 {
+	terms, _, err := zB.GetServiceTerminators(s.cfg.To.Service, 0, 1)
+	if err == nil && len(terms) == 0 {
 		return false
 	}
 	p := s.probeAppData.Load()
 	if p == nil {
-		return true
+		return err == nil
 	}
 	// With no origin: annotate then names no dialer or circuit, so the
 	// egress side does not take the probe for the client it copies.

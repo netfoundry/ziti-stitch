@@ -52,16 +52,20 @@ type egressConn struct{ edge.Conn }
 func (egressConn) GetCircuitId() string { return "circB" }
 func (egressConn) Close() error         { return nil }
 
-// egress is the egress network's context: its dials fail with err.
+// egress is the egress network's context: its dials fail with err, and it
+// lists one terminator unless listErr is set.
 type egress struct {
 	ziti.Context
-	err    error
-	probed []byte // the app data of the last probe dial
+	err     error
+	listErr error
+	probed  []byte // the app data of the last probe dial
 }
 
-// GetServiceTerminators fails, so the probe goes on to dial.
-func (*egress) GetServiceTerminators(string, int, int) ([]*rest_model.TerminatorClientDetail, int, error) {
-	return nil, 0, errors.New("unused")
+func (e *egress) GetServiceTerminators(string, int, int) ([]*rest_model.TerminatorClientDetail, int, error) {
+	if e.listErr != nil {
+		return nil, 0, e.listErr
+	}
+	return []*rest_model.TerminatorClientDetail{{}}, 1, nil
 }
 
 func (e *egress) DialContextWithOptions(_ context.Context, _ string, o *ziti.DialOptions) (edge.Conn, error) {
@@ -167,6 +171,9 @@ func TestProbeAppData(t *testing.T) {
 	e := &egress{}
 	if !s.egressReachable(context.Background(), e) || e.probed != nil {
 		t.Errorf("before any success the probe dialed (with %q) or reported down", e.probed)
+	}
+	if s.egressReachable(context.Background(), &egress{listErr: errors.New("service not found")}) {
+		t.Error("before any success, a service whose terminators cannot be listed was reported up")
 	}
 
 	dial("good", nil)
