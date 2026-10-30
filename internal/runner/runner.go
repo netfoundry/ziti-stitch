@@ -65,9 +65,9 @@ type Stitch interface {
 // stops once none does.
 type Runner struct {
 	log        *slog.Logger
-	newNetwork func(name, path string) Network
+	newNetwork func(name string, id identity) Network
 	newStitch  func(cfg config.Stitch, from, to Network) Stitch
-	commonName func(path string) string // see identity
+	commonName func(path string) (string, error) // see identity
 
 	mu       sync.Mutex
 	networks map[string]*netEntry    // by name; the current entry for each
@@ -124,17 +124,15 @@ type stitchEntry struct {
 // New returns a runner with nothing running.
 func New(log *slog.Logger) *Runner {
 	return newRunner(log,
-		func(name, path string) Network { return network.New(name, path, log) },
+		func(name string, id identity) Network { return network.New(name, id.path, id.commonName, log) },
 		func(cfg config.Stitch, from, to Network) Stitch { return stitch.New(cfg, from, to, log) },
-		func(path string) string {
-			// An unreadable file leaves the name empty; authenticating
-			// with it fails, and says why.
-			info, _ := network.ReadInfo(path)
-			return info.CertCommonName
+		func(path string) (string, error) {
+			info, err := network.ReadInfo(path)
+			return info.CertCommonName, err
 		})
 }
 
-func newRunner(log *slog.Logger, newNetwork func(name, path string) Network, newStitch func(cfg config.Stitch, from, to Network) Stitch, commonName func(path string) string) *Runner {
+func newRunner(log *slog.Logger, newNetwork func(name string, id identity) Network, newStitch func(cfg config.Stitch, from, to Network) Stitch, commonName func(path string) (string, error)) *Runner {
 	return &Runner{
 		log:         log,
 		newNetwork:  newNetwork,
@@ -183,7 +181,13 @@ func (r *Runner) apply(d *config.Dir) (Changes, []func()) {
 	}
 	ids := map[string]identity{}
 	for _, n := range d.Networks {
-		ids[n.Name] = identity{n.IdentityFile, r.commonName(n.IdentityFile)}
+		cn, err := r.commonName(n.IdentityFile)
+		if e, ok := r.networks[n.Name]; err != nil && ok && e.id.path == n.IdentityFile {
+			// Unreadable for a moment (being replaced, say): that is no
+			// reason to take it for another identity and restart stitches.
+			cn = e.id.commonName
+		}
+		ids[n.Name] = identity{n.IdentityFile, cn}
 	}
 
 	var c Changes
@@ -372,7 +376,7 @@ func (r *Runner) network(name string, id identity) *netEntry {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	n := &netEntry{name: name, id: id, nw: r.newNetwork(name, id.path), cancel: cancel}
+	n := &netEntry{name: name, id: id, nw: r.newNetwork(name, id), cancel: cancel}
 	r.networks[name] = n
 	r.live[n] = true
 	r.netsRunning.Go(func() { n.nw.Run(ctx) })

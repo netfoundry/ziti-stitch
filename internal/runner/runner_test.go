@@ -18,6 +18,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -146,12 +147,13 @@ type harness struct {
 	mu          sync.Mutex
 	stitches    map[string][]*fakeStitch // instances by "name v", oldest first
 	commonNames map[string]string        // by identity file; see identity
+	unreadable  map[string]bool          // identity files that cannot be read
 }
 
 func newHarness() *harness {
 	h := &harness{rec: &recorder{}, stitches: map[string][]*fakeStitch{}}
 	h.r = newRunner(slog.New(slog.NewTextHandler(io.Discard, nil)),
-		func(name, path string) Network { return &fakeNetwork{name: name, path: path, rec: h.rec} },
+		func(name string, id identity) Network { return &fakeNetwork{name: name, path: id.path, rec: h.rec} },
 		func(cfg config.Stitch, _, _ Network) Stitch {
 			f := &fakeStitch{cfg: cfg, rec: h.rec, drained: make(chan struct{}), retuning: h.retuning}
 			h.mu.Lock()
@@ -160,10 +162,13 @@ func newHarness() *harness {
 			h.mu.Unlock()
 			return f
 		},
-		func(path string) string {
+		func(path string) (string, error) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
-			return h.commonNames[path]
+			if h.unreadable[path] {
+				return "", errors.New("sharing violation")
+			}
+			return h.commonNames[path], nil
 		})
 	return h
 }
@@ -377,8 +382,8 @@ func TestShutdownDoesNotWaitForeverForNetworks(t *testing.T) {
 	h := newHarness()
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
-	h.r.newNetwork = func(name, path string) Network {
-		return &stuckNetwork{fakeNetwork{name: name, path: path, rec: h.rec}, release}
+	h.r.newNetwork = func(name string, id identity) Network {
+		return &stuckNetwork{fakeNetwork{name: name, path: id.path, rec: h.rec}, release}
 	}
 	h.r.netStopWait = 50 * time.Millisecond
 	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
@@ -566,5 +571,25 @@ func TestSlowRetuneDoesNotBlockSnapshot(t *testing.T) {
 	close(h.retuning)
 	if c := <-applied; c != (Changes{Retuned: 1}) {
 		t.Errorf("changes = %+v", c)
+	}
+}
+
+// An identity file that cannot be read for a moment (being replaced, say)
+// is not taken for another identity: its network and stitches carry on.
+func TestUnreadableIdentityKeepsItsNetwork(t *testing.T) {
+	h := newHarness()
+	h.enroll("a.json", "id-1")
+	h.r.Apply(dir(abNets, st("s1", "a", "b", 0)))
+	h.rec.waitFor(t, "stitch start s1 v=0")
+
+	h.mu.Lock()
+	h.unreadable = map[string]bool{"a.json": true}
+	h.mu.Unlock()
+	if c := h.r.Apply(dir(abNets, st("s1", "a", "b", 0))); c != (Changes{}) {
+		t.Errorf("changes = %+v, want none", c)
+	}
+	h.rec.settle()
+	if h.rec.count("net start a@a.json") != 1 || h.rec.has("stitch stop s1 v=0") {
+		t.Errorf("an unreadable identity file restarted things: %v", h.rec.events)
 	}
 }

@@ -59,7 +59,11 @@ func startNetwork(ctx context.Context, t *testing.T, name, harnessFile string, l
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	n := network.New(name, path, log)
+	info, err := network.ReadInfo(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := network.New(name, path, info.CertCommonName, log)
 	go n.Run(ctx)
 	return n
 }

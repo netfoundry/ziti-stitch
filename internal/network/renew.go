@@ -101,6 +101,12 @@ func (n *Network) renewIfNeeded(ctx context.Context, clt *ziti.CtrlClient) error
 	n.fileMu.Lock()
 	defer n.fileMu.Unlock()
 
+	// A pending file, or a renewal, is the new identity's business once
+	// the file holds another; this network is only draining.
+	if err := n.checkIdentity(); err != nil {
+		return err
+	}
+
 	if _, err := os.Stat(n.pendingPath()); err == nil {
 		return n.resolvePending(clt)
 	}
@@ -239,7 +245,7 @@ func (n *Network) resolvePending(clt *ziti.CtrlClient) error {
 func (n *Network) promote(clt *ziti.CtrlClient, raw []byte) error {
 	// From here the old certificate no longer works. A failed rename only
 	// means the next start picks the pending file up instead.
-	if err := atomicfile.Rename(n.pendingPath(), n.path); err != nil {
+	if err := n.whileIdentityExists(func() error { return atomicfile.Rename(n.pendingPath(), n.path) }); err != nil {
 		n.log.Error("new certificate is confirmed but still in the pending file; it will be used on the next start", "error", err)
 	}
 

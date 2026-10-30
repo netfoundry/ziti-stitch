@@ -17,6 +17,7 @@
 package network
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -161,7 +162,7 @@ func testNetwork(t *testing.T) *Network {
 	if err := os.WriteFile(path, []byte(sampleIdentity), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return New("acme", path, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return New("acme", path, "", slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestSettlePendingPromotesWorkingPendingFile(t *testing.T) {
@@ -270,6 +271,36 @@ func TestWhileIdentityExists(t *testing.T) {
 	n.saveControllerURLs(n.urlsSeq.Add(1), []*url.URL{u})
 	if _, err := os.Stat(n.path); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a controller list save brought the removed identity file back: %v", err)
+	}
+}
+
+// A network removed and enrolled again under the same name runs beside the
+// old one while the old one's stitches drain: the old one must not write
+// the new identity's file.
+func TestNoWritesOnceTheFileHoldsAnotherIdentity(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "networks")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "acme.json")
+	raw := identityJSON(t, "https://ctrl.example.com:1280/edge/client/v1", nil, pemPrefix+selfSignedPEM(t, time.Now().AddDate(1, 0, 0)))
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	write := func() error { return nil }
+
+	if err := New("acme", path, "test", log).whileIdentityExists(write); err != nil {
+		t.Errorf("the network whose identity it is: %v", err)
+	}
+	old := New("acme", path, "the-old-identity", log)
+	if err := old.whileIdentityExists(write); err == nil || !strings.Contains(err.Error(), "another identity") {
+		t.Errorf("the old network: err = %v, want another identity", err)
+	}
+	u, _ := url.Parse("https://elsewhere:1280/edge/client/v1")
+	old.saveControllerURLs(old.urlsSeq.Add(1), []*url.URL{u})
+	if b, _ := os.ReadFile(path); !bytes.Equal(b, raw) {
+		t.Error("the old network rewrote the new identity's file")
 	}
 }
 

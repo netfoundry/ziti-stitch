@@ -65,7 +65,11 @@ func TestRenewInPlaceKeepsServing(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	n := New("partner", hostFile, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	info, err := ReadInfo(hostFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := New("partner", hostFile, info.CertCommonName, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	runDone := make(chan struct{})
 	go func() { n.Run(ctx); close(runDone) }()
 	defer func() { cancel(); <-runDone }()
