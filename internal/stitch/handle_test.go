@@ -144,7 +144,7 @@ func TestRefusedDialsAreClosed(t *testing.T) {
 // The probe builds its app data from the ingress app data of the last
 // connection whose egress dial succeeded, so one client whose app data the
 // egress host rejects cannot keep the stitch gated. Before any success it
-// uses the first failure's.
+// does not dial at all: the only app data it has is a failed dial's.
 func TestProbeAppData(t *testing.T) {
 	s := testStitch(config.AppDataPassthrough)
 	g := newGate(&fakeListener{}, boundAt(edge.PrecedenceDefault), neverBack, discard)
@@ -160,11 +160,15 @@ func TestProbeAppData(t *testing.T) {
 	}
 	down := errors.New("dial failed")
 
-	dial("first-failure", down)
-	dial("second-failure", down)
-	if got := probe(); got != "first-failure" {
-		t.Errorf("before any success, probe app data = %q, want first-failure", got)
+	dial("rejected-by-host", down)
+	if got := probe(); got != "" {
+		t.Errorf("before any success, probe app data = %q, want none", got)
 	}
+	e := &egress{}
+	if !s.egressReachable(context.Background(), e) || e.probed != nil {
+		t.Errorf("before any success the probe dialed (with %q) or reported down", e.probed)
+	}
+
 	dial("good", nil)
 	dial("rejected-by-host", down)
 	if got := probe(); got != "good" {

@@ -78,8 +78,7 @@ type Stitch struct {
 	// own from, because a tunneler host on the egress side may reject a
 	// dial that carries none. It is that of the last connection whose
 	// egress dial succeeded, so one client whose app data the host rejects
-	// cannot keep the stitch gated; until a dial has succeeded, that of
-	// the first failed one.
+	// cannot keep the stitch gated. Nil until a dial has succeeded.
 	probeAppData atomic.Pointer[[]byte]
 
 	track tracker
@@ -320,7 +319,6 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		log.Warn("connection failed: cannot reach the egress service", "error", err, "dial_time", time.Since(start))
 		refuse(in, errUpstreamUnavailable)
 		s.track.failedOne(fmt.Errorf("cannot reach %s: %w", s.cfg.To.Service, err))
-		s.probeAppData.CompareAndSwap(nil, &inAppData)
 		g.failed()
 		return
 	}
@@ -368,17 +366,22 @@ func refuse(in edge.Conn, reason error) {
 // certainly down, and checking costs the egress side nothing. Otherwise
 // only a real dial tells (a host can be bound while its backend is down);
 // the far end sees a connection open and close without data.
+//
+// Until a dial has succeeded there is no app data known to be good, and
+// the failed dial's may be what failed (a client's, which the host
+// rejects): probing with it would gate the stitch for that client's sake,
+// and keep it gated. So until then only missing terminators count.
 func (s *Stitch) egressReachable(ctx context.Context, zB ziti.Context) bool {
 	if terms, _, err := zB.GetServiceTerminators(s.cfg.To.Service, 0, 1); err == nil && len(terms) == 0 {
 		return false
 	}
-	var in []byte
-	if p := s.probeAppData.Load(); p != nil {
-		in = *p
+	p := s.probeAppData.Load()
+	if p == nil {
+		return true
 	}
 	// With no origin: annotate then names no dialer or circuit, so the
 	// egress side does not take the probe for the client it copies.
-	appData, err := egressAppData(s.cfg.AppData, in, s.cfg.Name, origin{})
+	appData, err := egressAppData(s.cfg.AppData, *p, s.cfg.Name, origin{})
 	if err != nil {
 		return false // not reached: in passed egressAppData before it was kept
 	}
