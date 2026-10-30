@@ -52,3 +52,42 @@ func TestEnsureDirTightensAnExistingDir(t *testing.T) {
 		}
 	}
 }
+
+// networks/ holds the identities: one that already existed loses write
+// access for group and others too.
+func TestEnsureDirTightensAnExistingNetworksDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cfg")
+	networks := filepath.Join(dir, NetworksDirName)
+	if err := os.MkdirAll(networks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(networks, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(networks); err != nil || fi.Mode().Perm() != 0o755 {
+		t.Errorf("networks mode = %v, %v; want 0755", fi.Mode().Perm(), err)
+	}
+}
+
+// setuid is never carried over: an owner can set it on a directory.
+func TestEnsureDirDropsSetuid(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cfg")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777|os.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(dir); err != nil || fi.Mode()&os.ModeSetuid == 0 {
+		t.Skip("this system does not set setuid on a directory")
+	}
+	if err := EnsureDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(dir); err != nil || fi.Mode()&os.ModeSetuid != 0 || fi.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, %v; want 0755 without setuid", fi.Mode(), err)
+	}
+}
