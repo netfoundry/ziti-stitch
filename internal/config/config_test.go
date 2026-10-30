@@ -187,6 +187,9 @@ func TestLoadRejectsASecondDocument(t *testing.T) {
 	if _, err := Load(writeDir(t, twoNetworks(stitch+"---\n"))); err != nil {
 		t.Errorf("a trailing --- with nothing after it: %v", err)
 	}
+	if _, err := Load(writeDir(t, twoNetworks(stitch+"---\n---\nstitches: []\n"))); err == nil || !strings.Contains(err.Error(), "more than one YAML document") {
+		t.Errorf("a document after an empty one: err = %v", err)
+	}
 }
 
 func TestLoadRejectsMissingDirectory(t *testing.T) {

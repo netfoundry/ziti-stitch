@@ -314,15 +314,17 @@ func decodeYAML(path string, v any) error {
 	} else if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	var extra yaml.Node
-	switch err := dec.Decode(&extra); {
-	case errors.Is(err, io.EOF):
-	case err != nil:
-		return fmt.Errorf("%s: %w", path, err)
-	case !emptyDocument(&extra): // a stray trailing --- is harmless
-		return fmt.Errorf("%s: more than one YAML document (---); only the first would be read", path)
+	for {
+		var extra yaml.Node
+		switch err := dec.Decode(&extra); {
+		case errors.Is(err, io.EOF):
+			return nil
+		case err != nil:
+			return fmt.Errorf("%s: %w", path, err)
+		case !emptyDocument(&extra): // a stray --- is harmless
+			return fmt.Errorf("%s: more than one YAML document (---); only the first would be read", path)
+		}
 	}
-	return nil
 }
 
 func emptyDocument(n *yaml.Node) bool {
