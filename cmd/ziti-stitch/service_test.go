@@ -65,13 +65,12 @@ func TestCheckUnitConfigDir(t *testing.T) {
 }
 
 func TestCheckUnitExecutable(t *testing.T) {
-	// Spaces are escaped by the service library.
-	for _, ok := range []string{"/usr/local/bin/ziti-stitch", "/opt/my tools/ziti-stitch"} {
+	for _, ok := range []string{"/usr/local/bin/ziti-stitch", "/opt/ziti_stitch-2/bin/ziti-stitch"} {
 		if err := checkUnitExecutable(ok); err != nil {
 			t.Errorf("%s: %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"/opt/100%/ziti-stitch", "/opt/$x/ziti-stitch", `/opt/"q"/ziti-stitch`, "/opt/a\\b/ziti-stitch"} {
+	for _, bad := range []string{"/opt/100%/ziti-stitch", "/opt/$x/ziti-stitch", `/opt/"q"/ziti-stitch`, "/opt/a\\b/ziti-stitch", "/opt/o'neil/ziti-stitch", "/opt/my tools/ziti-stitch", "/opt/tab\tx/ziti-stitch"} {
 		if err := checkUnitExecutable(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}

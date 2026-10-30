@@ -91,12 +91,13 @@ func checkUnitConfigDir(dir string) error {
 	return nil
 }
 
-// checkUnitExecutable rejects an executable path the unit cannot express:
-// the service library escapes only its spaces, and systemd would expand %
-// and $ in it.
+// checkUnitExecutable rejects an executable path the unit cannot express,
+// by the same rule as checkUnitConfigDir: the service library escapes only
+// spaces (as \x20), which ConditionFileIsExecutable may not unescape, and
+// systemd unquotes and expands % and $ in ExecStart.
 func checkUnitExecutable(path string) error {
-	if strings.ContainsAny(path, "\n\"\\%$") {
-		return fmt.Errorf("%q cannot contain quotes, backslashes, %% or $ when installed as a systemd service; move the binary (e.g. to /usr/local/bin)", path)
+	if strings.ContainsAny(path, " \t\n\"'{}\\%$") {
+		return fmt.Errorf("%q cannot contain whitespace, quotes, braces, backslashes, %% or $ when installed as a systemd service; move the binary (e.g. to /usr/local/bin)", path)
 	}
 	return nil
 }
