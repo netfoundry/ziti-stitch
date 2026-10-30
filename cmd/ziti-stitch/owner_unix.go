@@ -19,6 +19,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -60,8 +61,12 @@ func checkOwnedBy(dir, name string) error {
 	return nil
 }
 
-// chownTo gives dir, and the entries directly in it, to the user called
-// name and their primary group. Symbolic links are changed, not followed.
+// chownTo gives dir, and the regular files directly in it, to the user
+// called name and their primary group. That user may own dir already (from
+// an earlier install) and so could have put a link to any root-owned file
+// in it: each entry is opened without following a symbolic link and changed
+// through that handle, and only if it is a regular file with a single
+// link. Anything else is left alone.
 func chownTo(dir, name string) error {
 	uid, gid, err := lookupUser(name)
 	if err != nil {
@@ -71,15 +76,55 @@ func chownTo(dir, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Lchown(dir, uid, gid); err != nil {
+	if err := chownOpened(dir, true, uid, gid); err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if err := os.Lchown(filepath.Join(dir, e.Name()), uid, gid); err != nil {
+		if err := chownOpened(filepath.Join(dir, e.Name()), false, uid, gid); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// chownOpened gives path to uid and gid if openForChown accepts it.
+func chownOpened(path string, isDir bool, uid, gid int) error {
+	f, err := openForChown(path, isDir)
+	if err != nil || f == nil {
+		return err
+	}
+	defer f.Close()
+	return f.Chown(uid, gid)
+}
+
+// openForChown opens path without following a symbolic link, and returns
+// it if it is what chownTo may change: a directory when isDir, else a
+// regular file with a single link. It returns nil for anything else, and
+// an error for a dir that is not one.
+func openForChown(path string, isDir bool) (*os.File, error) {
+	// O_NONBLOCK: opening a FIFO must not hang.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) && !isDir {
+		return nil, nil // a symbolic link
+	}
+	if err != nil {
+		return nil, err
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	switch {
+	case isDir && !fi.IsDir():
+		f.Close()
+		return nil, fmt.Errorf("%s is not a directory", path)
+	case !isDir && (!fi.Mode().IsRegular() || !ok || st.Nlink != 1):
+		f.Close()
+		return nil, nil
+	}
+	return f, nil
 }
 
 // lookupUser returns the uid and primary gid of the user called name.

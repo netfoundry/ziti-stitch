@@ -23,6 +23,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -67,5 +68,51 @@ func TestChownTo(t *testing.T) {
 	}
 	if err := chownTo(dir, "no-such-user-zs"); err == nil {
 		t.Error("an unknown user was accepted")
+	}
+}
+
+// The log directory may belong to the service user already, who could have
+// linked a root-owned file into it: only regular files with one link are
+// given away, and links are not followed.
+func TestOpenForChown(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	write := func(path string) {
+		t.Helper()
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(dir, "ziti-stitch.log"))
+	victim := filepath.Join(outside, "sudoers")
+	write(victim)
+	if err := os.Link(victim, filepath.Join(dir, "hard")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, "soft")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(dir, "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, want := range map[string]bool{"ziti-stitch.log": true, "hard": false, "soft": false, "fifo": false} {
+		f, err := openForChown(filepath.Join(dir, name), false)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if got := f != nil; got != want {
+			t.Errorf("%s: opened for chown = %v, want %v", name, got, want)
+		}
+		if f != nil {
+			f.Close()
+		}
+	}
+	if f, err := openForChown(dir, true); err != nil || f == nil {
+		t.Errorf("the directory itself: %v", err)
+	} else {
+		f.Close()
+	}
+	if _, err := openForChown(filepath.Join(dir, "ziti-stitch.log"), true); err == nil {
+		t.Error("a file was accepted as the directory")
 	}
 }
