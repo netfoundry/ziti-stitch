@@ -82,6 +82,9 @@ func enrollFrom(dir, prefix string, d *config.Dir, out io.Writer) error {
 			skip(file, ext)
 			continue
 		}
+		if err := config.CheckNewNetworkName(name); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		var raw []byte
 		if ext == ".jwt" {
 			token, err := readToken(path, nil)

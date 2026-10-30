@@ -160,7 +160,7 @@ func SuggestName(controllerURL string) (string, bool) {
 		if slices.Contains(genericHostLabels, l) || looksLikeID(l) {
 			continue
 		}
-		if name := strings.TrimLeft(l, "-_"); ValidName(name) {
+		if name := strings.TrimLeft(l, "-_"); CheckNewNetworkName(name) == nil {
 			return name, true
 		}
 	}

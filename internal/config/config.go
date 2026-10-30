@@ -190,15 +190,28 @@ var (
 )
 
 // NameRule says what ValidName accepts, for error messages.
-const NameRule = "lower case letters, digits, '-' and '_', and not a Windows device name such as con or nul"
+const NameRule = "lower case letters, digits, '-' and '_'"
 
 // ValidName reports whether s can name a network or a stitch: lower case
 // letters, digits, '-' and '_', starting with a letter or digit, at most
-// 63 characters, and not a Windows device name. Names end up in file
-// names (on every platform: a config moves between machines), logs and
-// URLs.
+// 63 characters. Names end up in file names, logs and URLs.
 func ValidName(s string) bool {
-	return nameRE.MatchString(s) && !deviceRE.MatchString(s)
+	return nameRE.MatchString(s)
+}
+
+// CheckNewNetworkName reports why name cannot name a new network, or nil.
+// Besides ValidName it refuses the names Windows reserves for devices: an
+// identity file cannot have one there, and a config moves between
+// machines. A network that has one already is left alone, so an upgrade
+// does not break a config that works where it is.
+func CheckNewNetworkName(name string) error {
+	if !ValidName(name) {
+		return fmt.Errorf("%q is not a valid network name: use %s", name, NameRule)
+	}
+	if deviceRE.MatchString(name) {
+		return fmt.Errorf("%q is a Windows device name, which an identity file cannot have there; choose another", name)
+	}
+	return nil
 }
 
 // Load reads the config directory at path, fills in defaults and validates

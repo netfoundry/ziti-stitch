@@ -323,15 +323,40 @@ stitches:
 }
 
 func TestValidName(t *testing.T) {
-	for _, s := range []string{"acme", "a", "partner-2", "us_east", "0net", strings.Repeat("a", 63), "console", "nul2", "com10"} {
+	for _, s := range []string{"acme", "a", "partner-2", "us_east", "0net", strings.Repeat("a", 63), "nul"} {
 		if !ValidName(s) {
 			t.Errorf("ValidName(%q) = false, want true", s)
 		}
 	}
-	for _, s := range []string{"", "Acme", "-acme", "_x", "a b", "a.b", "a/b", strings.Repeat("a", 64), "nul", "con", "com1", "lpt9"} {
+	for _, s := range []string{"", "Acme", "-acme", "_x", "a b", "a.b", "a/b", strings.Repeat("a", 64)} {
 		if ValidName(s) {
 			t.Errorf("ValidName(%q) = true, want false", s)
 		}
+	}
+}
+
+// Windows device names are refused for new networks only: an existing
+// one keeps loading, so an upgrade does not stop a config that works.
+func TestCheckNewNetworkName(t *testing.T) {
+	for _, s := range []string{"acme", "console", "nul2", "com10"} {
+		if err := CheckNewNetworkName(s); err != nil {
+			t.Errorf("%q: %v", s, err)
+		}
+	}
+	for _, s := range []string{"nul", "con", "aux", "com1", "lpt9"} {
+		if err := CheckNewNetworkName(s); err == nil || !strings.Contains(err.Error(), "Windows device name") {
+			t.Errorf("%q: err = %v, want a Windows device name", s, err)
+		}
+	}
+	if err := CheckNewNetworkName("Acme"); err == nil || !strings.Contains(err.Error(), NameRule) {
+		t.Errorf("Acme: err = %v", err)
+	}
+	d, err := Load(writeDir(t, map[string]string{"networks/aux.json": "{}"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := d.Network("aux"); !ok {
+		t.Error("an existing network called aux was not loaded")
 	}
 }
 

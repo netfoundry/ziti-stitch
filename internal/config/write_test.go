@@ -151,6 +151,7 @@ func TestSuggestName(t *testing.T) {
 		"https://localhost:1280":                                                    "localhost",
 		"https://c27bc9f6-6f43-4a8d-8a1b-1234567890ab.production.netfoundry.io:443": "production",
 		"https://ctrl.example.com":                                                  "example",
+		"https://ctrl.nul.example.com":                                              "example", // a Windows device name
 	}
 	for in, want := range tests {
 		if got, ok := SuggestName(in); !ok || got != want {

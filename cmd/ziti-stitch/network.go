@@ -184,8 +184,8 @@ func chooseName(d *config.Dir, name, controller string) (string, error) {
 		}
 		name = suggested
 	}
-	if !config.ValidName(name) {
-		return "", fmt.Errorf("%q is not a valid network name: use %s", name, config.NameRule)
+	if err := config.CheckNewNetworkName(name); err != nil {
+		return "", err
 	}
 	if _, taken := d.Network(name); taken {
 		return "", fmt.Errorf("network %q already exists; pass --name to choose another", name)
@@ -367,8 +367,8 @@ func newNetworkRenameCmd(configDir *string) *cobra.Command {
 			if !ok {
 				return fmt.Errorf("no network %q", from)
 			}
-			if !config.ValidName(to) {
-				return fmt.Errorf("%q is not a valid network name: use %s", to, config.NameRule)
+			if err := config.CheckNewNetworkName(to); err != nil {
+				return err
 			}
 			if _, taken := d.Network(to); taken {
 				return fmt.Errorf("network %q already exists", to)
