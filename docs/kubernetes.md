@@ -105,7 +105,7 @@ helm upgrade ziti-stitch oci://ghcr.io/netfoundry/charts/ziti-stitch --version <
 
 - The pods run as a non-root user with a read-only root filesystem, no capabilities and no service account token. ziti-stitch needs nothing from the Kubernetes API.
 - The identities' private keys live on the pods' volumes. Protect the storage, and the namespace, accordingly.
-- Every pod mounts the whole Secret, though each uses only the keys named after it. The tokens in it work once each; after every replica has started they are spent and the Secret can go. A `<pod>.<network>.json` holds a private key for as long as it stays there, readable by every pod; ziti-stitch warns at startup about any it does not use. Prefer tokens, and delete the Secret once every replica has started.
+- Every pod mounts the whole Secret, though each uses only the keys named after it. The tokens in it work once each; after every replica has started they are spent and the Secret can go. Tokens added for a replica that has not started yet (before scaling up) are readable, and redeemable, from every running pod until it does: add them just before raising `replicaCount`, and remove them once it has started. A `<pod>.<network>.json` holds a private key for as long as it stays there, readable by every pod; ziti-stitch warns at startup about any it does not use. Prefer tokens, and delete the Secret once every replica has started.
 - The health port answers with counts only, no names.
 
 ## Without Helm
