@@ -174,6 +174,23 @@ func (f *fallbackWriter) Write(p []byte) (int, error) {
 // starts so that a second interrupt gets the default behavior and kills
 // the process.
 func run(ctx context.Context, stopSignals func(), d *config.Dir, valid bool, log *slog.Logger, setLevel func(string), rec *events.Recorder) {
+	// Watch before anything starts or answers, so that no change made from
+	// then on is missed: once the health probes answer, a change is seen.
+	reload := make(chan struct{}, 1)
+	requestReload := func() {
+		select {
+		case reload <- struct{}{}:
+		default: // one is already pending
+		}
+	}
+	// SIGHUP never arrives on Windows; the watcher covers it there.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	if err := watchConfig(ctx, d.Path, d.Source, requestReload, log); err != nil {
+		log.Warn("cannot watch the config directory; send SIGHUP to apply changes", "error", err)
+	}
+
 	r := runner.New(log)
 	r.Apply(d)
 	logRunning(log, d)
@@ -207,21 +224,6 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, valid bool, log
 		}
 	}
 	listen(d, d)
-
-	reload := make(chan struct{}, 1)
-	requestReload := func() {
-		select {
-		case reload <- struct{}{}:
-		default: // one is already pending
-		}
-	}
-	// SIGHUP never arrives on Windows; the watcher covers it there.
-	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
-	defer signal.Stop(hup)
-	if err := watchConfig(ctx, d.Path, d.Source, requestReload, log); err != nil {
-		log.Warn("cannot watch the config directory; send SIGHUP to apply changes", "error", err)
-	}
 
 	for {
 		select {

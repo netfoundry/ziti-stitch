@@ -18,11 +18,11 @@ package main
 
 import (
 	"context"
-	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,22 +30,36 @@ import (
 	"github.com/netfoundry/ziti-stitch/internal/events"
 )
 
-// freeAddr returns a loopback address with a port nothing listens on.
-func freeAddr(t *testing.T) string {
+// freeAddrs returns n distinct loopback addresses with ports nothing
+// listens on: all are held until all are chosen, or one could come twice.
+func freeAddrs(t *testing.T, n int) []string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	addrs := make([]string, n)
+	for i := range addrs {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+		addrs[i] = ln.Addr().String()
 	}
-	defer ln.Close()
-	return ln.Addr().String()
+	return addrs
+}
+
+// testLog writes ziti-stitch's log to the test's, where a failure shows it.
+type testLog struct{ t *testing.T }
+
+func (w testLog) Write(p []byte) (int, error) {
+	w.t.Log(strings.TrimSuffix(string(p), "\n"))
+	return len(p), nil
 }
 
 // A config that is invalid at startup still gets health probes (alive,
 // not ready), and once it is fixed the web UI starts and probes say ready.
 func TestRunRecoversFromAnInvalidConfigAtStartup(t *testing.T) {
 	dir := t.TempDir()
-	healthAddr, webAddr := freeAddr(t), freeAddr(t)
+	addrs := freeAddrs(t, 2)
+	healthAddr, webAddr := addrs[0], addrs[1]
 	listeners := "health: {listen: '" + healthAddr + "'}\nweb: {listen: '" + webAddr + "'}\n"
 	writeConfig := func(content string) {
 		if err := os.WriteFile(filepath.Join(dir, config.ConfigFileName), []byte(content), 0o600); err != nil {
@@ -63,7 +77,7 @@ func TestRunRecoversFromAnInvalidConfigAtStartup(t *testing.T) {
 		defer close(done)
 		fb := config.Fallback(dir)
 		rec := events.NewRecorder(10)
-		log, setLevel := newLogger(fb.Config.Log, io.Discard, rec)
+		log, setLevel := newLogger(fb.Config.Log, testLog{t}, rec)
 		run(ctx, func() {}, fb, false, log, setLevel, rec)
 	}()
 	defer func() { cancel(); <-done }()
