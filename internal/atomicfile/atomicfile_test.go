@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestWriteFileReplacesContentAndLeavesNoTemp(t *testing.T) {
@@ -88,4 +89,36 @@ func TestRenameMovesFile(t *testing.T) {
 	if _, err := os.Stat(from); !os.IsNotExist(err) {
 		t.Errorf("source still exists (err=%v)", err)
 	}
+}
+
+// Temporary files a crash left behind are removed once old enough; ones
+// still being written, and other files, are not.
+func TestRemoveStale(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-2 * time.Hour)
+	files := map[string]bool{ // name: removed
+		".acme.json.tmp-123": true,
+		".acme.json.tmp-456": false, // recent
+		"acme.json":          false,
+		".acme.json.pending": false,
+		"notes.tmp-1":        false,
+	}
+	for name := range files {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if name != ".acme.json.tmp-456" {
+			if err := os.Chtimes(p, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	RemoveStale(dir, time.Hour)
+	for name, removed := range files {
+		if _, err := os.Stat(filepath.Join(dir, name)); os.IsNotExist(err) != removed {
+			t.Errorf("%s: removed = %v, want %v", name, os.IsNotExist(err), removed)
+		}
+	}
+	RemoveStale(filepath.Join(dir, "missing"), time.Hour) // no directory: nothing to do
 }

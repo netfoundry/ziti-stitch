@@ -34,6 +34,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/natefinch/lumberjack.v2"
 
+	"github.com/netfoundry/ziti-stitch/internal/atomicfile"
 	"github.com/netfoundry/ziti-stitch/internal/config"
 	"github.com/netfoundry/ziti-stitch/internal/events"
 	"github.com/netfoundry/ziti-stitch/internal/runner"
@@ -46,6 +47,10 @@ const drainTimeout = 30 * time.Second
 
 // eventsKept is how many recent log records the web UI can show.
 const eventsKept = 2000
+
+// staleTempAge is how old a temporary file in the networks directory must
+// be for run to take it as one a crash left behind.
+const staleTempAge = time.Hour
 
 func newRunCmd(configDir *string) *cobra.Command {
 	var logFile, enrollDir, enrollFor string
@@ -87,6 +92,7 @@ immediately.`,
 			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 				return fmt.Errorf("no config directory at %s; start with: ziti-stitch enroll --jwt <file>", dir)
 			}
+			atomicfile.RemoveStale(filepath.Join(dir, config.NetworksDirName), staleTempAge)
 
 			// An invalid config does not stop us: under a service manager
 			// exiting would only mean a restart loop. Run nothing and wait

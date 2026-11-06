@@ -23,14 +23,21 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 )
 
 // WriteFile writes data to a temporary file in the same directory as path,
 // syncs it, and renames it over path. The directory is synced afterwards
 // (where the OS supports it) so the rename itself survives a crash.
+//
+// Once the rename is done the write has happened, and WriteFile reports
+// success: a failed directory sync only risks the old content coming back
+// after a crash, and reporting failure would have callers throw away what
+// they saved (an identity whose one-time token is spent, say).
 func WriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+tempMark+"*")
 	if err != nil {
 		return err
 	}
@@ -59,16 +66,41 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	committed = true
-	return syncDir(dir)
+	_ = syncDir(dir)
+	return nil
 }
 
 // Rename renames oldpath to newpath and syncs the directory, so that a
-// completed rename is durable.
+// completed rename is durable. As with WriteFile, a rename that happened
+// is reported as done.
 func Rename(oldpath, newpath string) error {
 	if err := os.Rename(oldpath, newpath); err != nil {
 		return err
 	}
-	return syncDir(filepath.Dir(newpath))
+	_ = syncDir(filepath.Dir(newpath))
+	return nil
+}
+
+// tempMark is in the name of WriteFile's temporary files.
+const tempMark = ".tmp-"
+
+// RemoveStale removes WriteFile's temporary files in dir that are older
+// than age: ones a crash left behind, which may hold what was being
+// written (a private key). Younger ones may still be on their way in.
+func RemoveStale(dir string, age time.Duration) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, ".") || !strings.Contains(name, tempMark) {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && fi.Mode().IsRegular() && time.Since(fi.ModTime()) > age {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
 
 func syncDir(dir string) error {
