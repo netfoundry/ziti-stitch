@@ -25,6 +25,7 @@ import (
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
 	"github.com/netfoundry/ziti-stitch/internal/network"
+	"github.com/netfoundry/ziti-stitch/internal/runner"
 	"github.com/netfoundry/ziti-stitch/internal/stitch"
 )
 
@@ -64,6 +65,7 @@ var funcs = template.FuncMap{
 	"precedences":     func() []string { return config.Precedences },
 	"appDataPolicies": func() []config.AppDataPolicy { return config.AppDataPolicies },
 	"namePattern":     func() string { return config.NamePattern },
+	"stopGrace":       func() time.Duration { return runner.StopGrace },
 }
 
 // ago renders how long ago t was, coarsely: "just now", "4m ago".

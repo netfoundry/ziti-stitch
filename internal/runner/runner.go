@@ -78,13 +78,13 @@ type Runner struct {
 	drainingWG  sync.WaitGroup
 	netsRunning sync.WaitGroup
 	netStopWait time.Duration // see networkStopWait
-	stopGrace   time.Duration // see removedStitchGrace
+	stopGrace   time.Duration // see StopGrace
 }
 
-// removedStitchGrace is how long a removed or disabled stitch's open
-// connections have to finish before they are closed: as long as a
-// shutdown gives them.
-const removedStitchGrace = 30 * time.Second
+// StopGrace is how long open connections get to finish before they are
+// closed, when their stitch is removed or disabled, and when ziti-stitch
+// shuts down.
+const StopGrace = 30 * time.Second
 
 // networkStopWait bounds how long Shutdown waits for networks to stop
 // after draining. A network in the middle of a certificate renewal
@@ -143,7 +143,7 @@ func newRunner(log *slog.Logger, newNetwork func(name string, id identity) Netwo
 		stitches:    map[string]*stitchEntry{},
 		draining:    map[*stitchEntry]bool{},
 		netStopWait: networkStopWait,
-		stopGrace:   removedStitchGrace,
+		stopGrace:   StopGrace,
 	}
 }
 

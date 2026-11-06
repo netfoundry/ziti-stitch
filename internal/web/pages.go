@@ -180,8 +180,8 @@ var flashes = map[string]string{
 	"added":    "Added stitch %s.",
 	"saved":    "Saved stitch %s.",
 	"enabled":  "Enabled stitch %s.",
-	"disabled": "Disabled stitch %s; its open connections get 30 seconds to finish.",
-	"removed":  "Removed stitch %s; its open connections get 30 seconds to finish.",
+	"disabled": "Disabled stitch %s; its open connections get " + runner.StopGrace.String() + " to finish, then are closed.",
+	"removed":  "Removed stitch %s; its open connections get " + runner.StopGrace.String() + " to finish, then are closed.",
 }
 
 func flashFrom(r *http.Request) string {

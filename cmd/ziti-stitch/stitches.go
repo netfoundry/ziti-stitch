@@ -26,6 +26,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netfoundry/ziti-stitch/internal/config"
+	"github.com/netfoundry/ziti-stitch/internal/runner"
 )
 
 // savedNote tells the user how a saved change reaches a running instance.
@@ -33,7 +34,7 @@ const savedNote = "A running ziti-stitch applies the change on its own."
 
 // stoppedNote says what becomes of a removed or disabled stitch's open
 // connections.
-const stoppedNote = "Its open connections get 30 seconds to finish, then are closed."
+var stoppedNote = fmt.Sprintf("Its open connections get %v to finish, then are closed.", runner.StopGrace)
 
 func newStitchCmd(configDir *string) *cobra.Command {
 	cmd := &cobra.Command{

@@ -43,7 +43,7 @@ import (
 
 // drainTimeout is how long shutdown waits for open connections to finish
 // before closing them.
-const drainTimeout = 30 * time.Second
+const drainTimeout = runner.StopGrace
 
 // eventsKept is how many recent log records the web UI can show.
 const eventsKept = 2000
@@ -57,18 +57,19 @@ func newRunCmd(configDir *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run every enabled stitch until stopped",
-		Long: `Run every enabled stitch until interrupted (SIGINT or SIGTERM).
+		Long: fmt.Sprintf(`Run every enabled stitch until interrupted (SIGINT or SIGTERM).
 
 Changes to the config directory, from the CLI or by hand, are applied as
 they happen (SIGHUP forces a reload). Stitches that did not change are not
-touched; removed or changed ones stop accepting and let their open
-connections finish. An invalid change is logged and not applied; an invalid
-configuration at startup is logged, and ziti-stitch waits for it to be
-fixed.
+touched. Removed or disabled ones stop accepting, and their open
+connections get %[1]v to finish before they are closed; changed ones
+stop accepting and let their open connections finish. An invalid change is
+logged and not applied; an invalid configuration at startup is logged, and
+ziti-stitch waits for it to be fixed.
 
-On shutdown, ziti-stitch stops accepting new connections, waits up to 30s
+On shutdown, ziti-stitch stops accepting new connections, waits up to %[1]v
 for open ones to finish, then closes the rest. A second interrupt exits
-immediately.`,
+immediately.`, drainTimeout),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, err := resolveConfigDir(*configDir)

@@ -415,6 +415,8 @@ func TestStitchAddEditToggleRemove(t *testing.T) {
 	}
 	if w := e.get("/stitches/orders"); w.Code != http.StatusOK || !strings.Contains(body(w), `value="orders-v2"`) {
 		t.Errorf("edit page: %d", w.Code)
+	} else if !strings.Contains(body(w), "open ones get "+runner.StopGrace.String()+" to finish before they are closed") {
+		t.Error("the disable and remove confirms do not say open connections are closed after the grace")
 	}
 
 	if w := e.post("/stitches/orders/disable", nil); w.Code != http.StatusSeeOther || !e.stitches()[1].Disabled {

@@ -7,9 +7,9 @@
     {{if .Form.Stitch.Disabled}}
     <form method="post" action="/stitches/{{.Form.Stitch.Name}}/enable"><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn">Enable</button></form>
     {{else}}
-    <form method="post" action="/stitches/{{.Form.Stitch.Name}}/disable" data-confirm="Disable stitch {{.Form.Stitch.Name}}? It stops accepting new connections; open ones finish."><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn">Disable</button></form>
+    <form method="post" action="/stitches/{{.Form.Stitch.Name}}/disable" data-confirm="Disable stitch {{.Form.Stitch.Name}}? It stops accepting new connections, and open ones get {{stopGrace}} to finish before they are closed."><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn">Disable</button></form>
     {{end}}
-    <form method="post" action="/stitches/{{.Form.Stitch.Name}}/remove" data-confirm="Remove stitch {{.Form.Stitch.Name}}? It stops accepting new connections; open ones finish."><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn danger">Remove</button></form>
+    <form method="post" action="/stitches/{{.Form.Stitch.Name}}/remove" data-confirm="Remove stitch {{.Form.Stitch.Name}}? It stops accepting new connections, and open ones get {{stopGrace}} to finish before they are closed."><input type="hidden" name="csrf" value="{{.Form.CSRF}}"><button class="btn danger">Remove</button></form>
   </div>
   {{end}}
 </div>
