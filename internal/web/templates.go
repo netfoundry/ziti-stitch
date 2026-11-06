@@ -23,6 +23,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/netfoundry/ziti-stitch/internal/config"
 	"github.com/netfoundry/ziti-stitch/internal/network"
 	"github.com/netfoundry/ziti-stitch/internal/stitch"
 )
@@ -51,15 +52,18 @@ func parsePages() (map[string]*template.Template, error) {
 }
 
 var funcs = template.FuncMap{
-	"ago":        ago,
-	"bytes":      humanBytes,
-	"duration":   humanDuration,
-	"stateClass": stateClass,
-	"levelClass": levelClass,
-	"expiry":     func(t time.Time) string { return network.DescribeExpiry(t, time.Now()) },
-	"clock":      func(t time.Time) string { return t.Local().Format("Jan 2 15:04:05") },
-	"since":      time.Since,
-	"list":       func(xs ...string) []string { return xs },
+	"ago":             ago,
+	"bytes":           humanBytes,
+	"duration":        humanDuration,
+	"stateClass":      stateClass,
+	"levelClass":      levelClass,
+	"expiry":          func(t time.Time) string { return network.DescribeExpiry(t, time.Now()) },
+	"clock":           func(t time.Time) string { return t.Local().Format("Jan 2 15:04:05") },
+	"since":           time.Since,
+	"list":            func(xs ...string) []string { return xs },
+	"precedences":     func() []string { return config.Precedences },
+	"appDataPolicies": func() []config.AppDataPolicy { return config.AppDataPolicies },
+	"namePattern":     func() string { return config.NamePattern },
 }
 
 // ago renders how long ago t was, coarsely: "just now", "4m ago".

@@ -362,6 +362,30 @@ func TestOverview(t *testing.T) {
 	}
 }
 
+// The add form offers what config accepts, and its high availability hint
+// matches the guide: no required primary.
+func TestStitchFormMatchesConfig(t *testing.T) {
+	e := newEnv(t)
+	e.signIn()
+	b := body(e.get("/stitches"))
+	if !strings.Contains(b, `pattern="`+config.NamePattern+`"`) {
+		t.Error("the name field's pattern is not config's")
+	}
+	for _, p := range config.Precedences {
+		if !strings.Contains(b, "<option>"+p+"</option>") && !strings.Contains(b, "<option selected>"+p+"</option>") {
+			t.Errorf("no %s precedence option", p)
+		}
+	}
+	for _, a := range config.AppDataPolicies {
+		if !strings.Contains(b, "<option>"+string(a)+"</option>") && !strings.Contains(b, "<option selected>"+string(a)+"</option>") {
+			t.Errorf("no %s app data option", a)
+		}
+	}
+	if !strings.Contains(b, `href="/docs/high-availability"`) || strings.Contains(b, "on the primary") {
+		t.Error("the high availability hint does not match the guide")
+	}
+}
+
 func TestStitchAddEditToggleRemove(t *testing.T) {
 	e := newEnv(t)
 	e.signIn()

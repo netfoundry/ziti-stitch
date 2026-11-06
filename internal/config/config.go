@@ -59,12 +59,18 @@ const (
 	AppDataAnnotate AppDataPolicy = "annotate"
 )
 
+// AppDataPolicies are the valid app data policies, default first.
+var AppDataPolicies = []AppDataPolicy{AppDataPassthrough, AppDataStrip, AppDataAnnotate}
+
 // Precedence labels, as the Ziti SDK spells them.
 const (
 	PrecedenceDefault  = "default"
 	PrecedenceRequired = "required"
 	PrecedenceFailed   = "failed"
 )
+
+// Precedences are the valid precedence labels, default first.
+var Precedences = []string{PrecedenceDefault, PrecedenceRequired, PrecedenceFailed}
 
 // Config is the content of config.yaml.
 type Config struct {
@@ -182,8 +188,12 @@ type stitchesFile struct {
 	Stitches []Stitch `yaml:"stitches"`
 }
 
+// NamePattern is what ValidName accepts, unanchored, as both Go and an
+// HTML pattern attribute read it (the latter wants the - escaped).
+const NamePattern = `[a-z0-9][a-z0-9_\-]{0,62}`
+
 var (
-	nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
+	nameRE = regexp.MustCompile("^" + NamePattern + "$")
 	// deviceRE matches the names Windows reserves for devices, extension
 	// or not: nul.json is the null device, not a file.
 	deviceRE = regexp.MustCompile(`^(con|prn|aux|nul|com[0-9]|lpt[0-9])$`)
@@ -540,14 +550,10 @@ func (d *Dir) validateStitch(p *problems, where string, s Stitch) {
 	if s.From.Network != "" && s.From.Network == s.To.Network && s.From.Service == s.To.Service {
 		p.add("%s: dials the service it binds", where)
 	}
-	switch s.From.Precedence {
-	case PrecedenceDefault, PrecedenceRequired, PrecedenceFailed:
-	default:
+	if !slices.Contains(Precedences, s.From.Precedence) {
 		p.add("%s: from.precedence %q is not one of default, required, failed", where, s.From.Precedence)
 	}
-	switch s.AppData {
-	case AppDataPassthrough, AppDataStrip, AppDataAnnotate:
-	default:
+	if !slices.Contains(AppDataPolicies, s.AppData) {
 		p.add("%s: app_data %q is not one of passthrough, strip, annotate", where, s.AppData)
 	}
 	if s.IdleTimeout < 0 {
