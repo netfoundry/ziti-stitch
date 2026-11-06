@@ -258,7 +258,7 @@ Logs: journalctl -u ziti-stitch on Linux; ` + macLogDir + `/ on macOS;
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&userName, "user", "", "run the service as this user (Linux, macOS); it must own the config directory")
+	cmd.Flags().StringVar(&userName, "user", "", "run the service as this user (Linux, macOS), a local one; it must own the config directory")
 	return cmd
 }
 

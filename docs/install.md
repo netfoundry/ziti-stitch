@@ -47,7 +47,7 @@ sudo chown -R ziti-stitch: /var/lib/ziti-stitch
 sudo ziti-stitch service install --user ziti-stitch
 ```
 
-From then on run the CLI as that user (`sudo -u ziti-stitch ziti-stitch --config-dir /var/lib/ziti-stitch ...`), so that the files it writes stay readable by the service.
+From then on run the CLI as that user (`sudo -u ziti-stitch ziti-stitch --config-dir /var/lib/ziti-stitch ...`), so that the files it writes stay readable by the service. The user must be a local account (in `/etc/passwd`): ziti-stitch is built without cgo, so it cannot look up directory users (LDAP, SSSD).
 
 ## macOS (launchd)
 
@@ -81,7 +81,7 @@ ziti-stitch service start
 
 ## The web UI
 
-Off by default. To turn it on, add this to `config.yaml` in the config directory and restart the service:
+Off by default. To turn it on, add this to `config.yaml` in the config directory; a running ziti-stitch starts the UI on its own:
 
 ```yaml
 web:
@@ -92,6 +92,7 @@ Then, on the same machine:
 
 ```
 sudo ziti-stitch web login      # add --config-dir if the service uses one
+sudo -u ziti-stitch ziti-stitch --config-dir /var/lib/ziti-stitch web login   # for a --user install
 ```
 
 Open the link it prints; it works once, for five minutes. The loopback listener only answers on this machine. To reach the UI from elsewhere, over an SSH port forward or as a Ziti service with per-identity access, see [web-ui.md](web-ui.md).

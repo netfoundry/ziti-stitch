@@ -25,6 +25,7 @@ To sign in, run this on the same machine, as a user who can change the configura
 
 ```
 sudo ziti-stitch web login      # add --config-dir if the service uses one
+sudo -u ziti-stitch ziti-stitch --config-dir /var/lib/ziti-stitch web login   # for a Linux --user install
 ```
 
 It prints a link. The link works once, within five minutes, and signs you in for 12 hours with full access. Only someone who can write the config directory can make a link, which is exactly who could change the configuration by hand anyway, so the link adds no new way in.
@@ -39,7 +40,7 @@ For a machine you can SSH to, forward the loopback port:
 ssh -L 8474:127.0.0.1:8474 admin@stitch-host
 ```
 
-Then run `sudo ziti-stitch web login` in that SSH session and open the link on your own machine.
+Then run `ziti-stitch web login` in that SSH session, as above, and open the link on your own machine.
 
 Use the **same port number** on both ends. The UI only answers requests addressed to its own address (see [the Host check](#the-host-check)), and a browser pointed at `127.0.0.1:9000` says so in every request.
 
