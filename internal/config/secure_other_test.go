@@ -21,16 +21,17 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// A config directory that already exists loses write access for group and
+// A config directory that already exists loses all access for group and
 // others, and keeps the rest of its mode.
 func TestEnsureDirTightensAnExistingDir(t *testing.T) {
 	for _, tc := range []struct{ before, after os.FileMode }{
-		{0o777, 0o755},
-		{0o770, 0o750},
-		{0o750, 0o750},
+		{0o777, 0o700},
+		{0o750, 0o700},
+		{0o705, 0o700},
 		{0o700, 0o700},
 	} {
 		dir := filepath.Join(t.TempDir(), "cfg")
@@ -53,8 +54,8 @@ func TestEnsureDirTightensAnExistingDir(t *testing.T) {
 	}
 }
 
-// networks/ holds the identities: one that already existed loses write
-// access for group and others too.
+// networks/ holds the identities: one that already existed loses group
+// and other access too.
 func TestEnsureDirTightensAnExistingNetworksDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cfg")
 	networks := filepath.Join(dir, NetworksDirName)
@@ -67,8 +68,32 @@ func TestEnsureDirTightensAnExistingNetworksDir(t *testing.T) {
 	if err := EnsureDir(dir); err != nil {
 		t.Fatal(err)
 	}
-	if fi, err := os.Stat(networks); err != nil || fi.Mode().Perm() != 0o755 {
-		t.Errorf("networks mode = %v, %v; want 0755", fi.Mode().Perm(), err)
+	if fi, err := os.Stat(networks); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("networks mode = %v, %v; want 0700", fi.Mode().Perm(), err)
+	}
+}
+
+// networks/ as a link is refused: run as root, securing it would change
+// whatever it points at.
+func TestEnsureDirRefusesALinkedNetworksDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cfg")
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+	for _, d := range []string{dir, elsewhere} {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(elsewhere, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, NetworksDirName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDir(dir); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Errorf("EnsureDir = %v, want a refusal of the link", err)
+	}
+	if fi, err := os.Stat(elsewhere); err != nil || fi.Mode().Perm() != 0o777 {
+		t.Errorf("the link's target was changed: mode %v, %v", fi.Mode().Perm(), err)
 	}
 }
 
@@ -87,7 +112,7 @@ func TestEnsureDirDropsSetuid(t *testing.T) {
 	if err := EnsureDir(dir); err != nil {
 		t.Fatal(err)
 	}
-	if fi, err := os.Stat(dir); err != nil || fi.Mode()&os.ModeSetuid != 0 || fi.Mode().Perm() != 0o755 {
-		t.Errorf("mode = %v, %v; want 0755 without setuid", fi.Mode(), err)
+	if fi, err := os.Stat(dir); err != nil || fi.Mode()&os.ModeSetuid != 0 || fi.Mode().Perm() != 0o700 {
+		t.Errorf("mode = %v, %v; want 0700 without setuid", fi.Mode(), err)
 	}
 }

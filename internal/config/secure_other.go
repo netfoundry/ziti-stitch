@@ -25,33 +25,39 @@ import (
 	"syscall"
 )
 
-// securePrivateDir takes write access to path, and to its networks
-// directory, away from group and others. EnsureDir creates them with mode
-// 0700, but directories that already existed keep their mode, and anyone
-// else who can write to one can swap what is in it for their own: an
-// identity in networks/, or web/ with a login token planted in it. Read
-// access is left alone: what it shows is not secret, identity files being
-// 0600.
+// securePrivateDir takes group and other access away from path, and from
+// its networks directory, leaving them as EnsureDir creates them (mode
+// 0700). Directories that already existed keep their mode otherwise, and
+// anyone else who can write to one can swap what is in it for their own
+// (an identity in networks/, or web/ with a login token planted in it),
+// while anyone who can open one can hold its edit lock (see tryLock) and
+// stall every change and certificate renewal.
 //
 // Only a directory this process owns, or any as root, is changed. Another
 // user's directory is theirs to secure: a Kubernetes volume, for one, is
 // owned by root and writable by the pod's group or everyone, with no other
-// users to fear.
+// users to fear. networks/ must be a directory, not a link: run as root,
+// following one would change whatever it points at.
 func securePrivateDir(path string) error {
-	for _, dir := range []string{path, filepath.Join(path, NetworksDirName)} {
-		if err := dropGroupOtherWrite(dir); err != nil {
-			return fmt.Errorf("restricting access to %s: %w", dir, err)
+	if err := dropGroupOtherAccess(path, 0); err != nil {
+		return fmt.Errorf("restricting access to %s: %w", path, err)
+	}
+	networks := filepath.Join(path, NetworksDirName)
+	if err := dropGroupOtherAccess(networks, syscall.O_NOFOLLOW); err != nil {
+		if fi, lerr := os.Lstat(networks); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symbolic link; it must be a directory", networks)
 		}
+		return fmt.Errorf("restricting access to %s: %w", networks, err)
 	}
 	return nil
 }
 
-// dropGroupOtherWrite works on an open handle, so that the directory
-// checked is the one changed even if the path is swapped meanwhile, and
-// never sets setuid, which an owner may put on a directory to have it
-// carried onto whatever the path was swapped for.
-func dropGroupOtherWrite(dir string) error {
-	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY, 0)
+// dropGroupOtherAccess opens dir with the extra open flags and works on
+// the handle, so that the directory checked is the one changed even if the
+// path is swapped meanwhile. It never sets setuid, which an owner may put
+// on a directory to have it carried onto whatever the path was swapped for.
+func dropGroupOtherAccess(dir string, flags int) error {
+	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|flags, 0)
 	if err != nil {
 		return err
 	}
@@ -60,7 +66,7 @@ func dropGroupOtherWrite(dir string) error {
 	if err != nil {
 		return err
 	}
-	if fi.Mode().Perm()&0o022 == 0 {
+	if fi.Mode().Perm()&0o077 == 0 {
 		return nil
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
@@ -68,5 +74,5 @@ func dropGroupOtherWrite(dir string) error {
 		return nil
 	}
 	// fi.Mode keeps setgid and sticky, which Chmod applies too.
-	return f.Chmod(fi.Mode() &^ 0o022 &^ os.ModeSetuid)
+	return f.Chmod(fi.Mode() &^ 0o077 &^ os.ModeSetuid)
 }
