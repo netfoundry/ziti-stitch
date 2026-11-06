@@ -312,7 +312,7 @@ func decodeYAML(path string, v any) error {
 	if err := dec.Decode(v); errors.Is(err, io.EOF) {
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return fmt.Errorf("%s: %w%s", path, err, durationHint(err))
 	}
 	for {
 		var extra yaml.Node
@@ -325,6 +325,15 @@ func decodeYAML(path string, v any) error {
 			return fmt.Errorf("%s: more than one YAML document (---); only the first would be read", path)
 		}
 	}
+}
+
+// durationHint explains a duration given as a bare number, which YAML
+// reads as an integer: idle_timeout: 0, or 30 meaning seconds.
+func durationHint(err error) string {
+	if strings.Contains(err.Error(), "into time.Duration") {
+		return "\n(a duration needs a unit, such as 30s, 5m or 1h; 0s for none)"
+	}
+	return ""
 }
 
 func emptyDocument(n *yaml.Node) bool {

@@ -178,6 +178,23 @@ stitches:
 	}
 }
 
+// A duration needs a unit, and the error says so: YAML reads a bare 0 or
+// 30 as an integer.
+func TestLoadExplainsADurationWithoutAUnit(t *testing.T) {
+	for _, v := range []string{"0", "30"} {
+		dir := writeDir(t, twoNetworks(`
+stitches:
+  - name: billing
+    from: {network: acme, service: billing-api}
+    to: {network: partner, service: billing}
+    idle_timeout: `+v+`
+`))
+		if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), "needs a unit") {
+			t.Errorf("idle_timeout: %s: err = %v, want it to explain the unit", v, err)
+		}
+	}
+}
+
 // A second document would be ignored, then dropped by the next save.
 func TestLoadRejectsASecondDocument(t *testing.T) {
 	stitch := "stitches:\n  - {name: s, from: {network: acme, service: a}, to: {network: partner, service: b}}\n"
