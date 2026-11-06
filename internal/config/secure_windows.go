@@ -131,17 +131,19 @@ const (
 	lgIncludeIndirect = 1
 	// maxPreferredLength lets it allocate as much as the answer needs.
 	maxPreferredLength = 0xFFFFFFFF
-	// nerrUserNotFound is its answer for an account that is not a user:
-	// a group, say.
-	nerrUserNotFound = 2221
 )
 
-// isAdministrator reports whether the account sid is in the local
-// Administrators group, directly or through a domain group.
+// isAdministrator reports whether the account sid is a user in the local
+// Administrators group, directly or through a domain group. A group or
+// other account that is not a user is not one.
 func isAdministrator(sid *windows.SID) (bool, error) {
-	account, domain, _, err := sid.LookupAccount("")
+	account, domain, kind, err := sid.LookupAccount("")
 	if err != nil {
 		return false, err
+	}
+	if kind != windows.SidTypeUser {
+		// NetUserGetLocalGroups knows only users; it fails for others.
+		return false, nil
 	}
 	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
@@ -163,11 +165,7 @@ func isAdministrator(sid *windows.SID) (bool, error) {
 	if buf != nil {
 		defer windows.NetApiBufferFree(buf)
 	}
-	switch r {
-	case 0:
-	case nerrUserNotFound:
-		return false, nil
-	default:
+	if r != 0 {
 		return false, windows.Errno(r)
 	}
 	// An array of LOCALGROUP_USERS_INFO_0, each a pointer to a group name.

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -142,8 +143,12 @@ func TestEnrollFromUsesAnIdentityKeptUnsaved(t *testing.T) {
 	if err := keepUnsaved(d.Path, "newnet", kept, errors.New("saving failed")); err == nil || !strings.Contains(err.Error(), unsavedPath(d.Path, "newnet")) {
 		t.Fatalf("keepUnsaved = %v, want it to name the file", err)
 	}
-	if fi, err := os.Stat(unsavedPath(d.Path, "newnet")); err != nil || fi.Mode().Perm() != 0o600 {
-		t.Fatalf("unsaved identity: %v, %v; want mode 0600", fi, err)
+	fi, err := os.Stat(unsavedPath(d.Path, "newnet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+		t.Errorf("unsaved identity mode = %v, want 0600", fi.Mode().Perm())
 	}
 
 	var out bytes.Buffer
