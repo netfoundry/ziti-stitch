@@ -227,11 +227,22 @@ Logs: journalctl -u ziti-stitch on Linux; ` + macLogDir + `/ on macOS;
 				if err := os.MkdirAll(macLogDir, 0o750); err != nil {
 					return err
 				}
+				// One that already existed keeps its mode and owner otherwise.
+				if fi, err := os.Lstat(macLogDir); err != nil {
+					return err
+				} else if !fi.IsDir() {
+					return fmt.Errorf("%s is not a directory", macLogDir)
+				}
+				if err := os.Chmod(macLogDir, 0o750); err != nil {
+					return err
+				}
 				// The service writes its log there as that user.
+				owner := "root"
 				if userName != "" {
-					if err := chownTo(macLogDir, userName); err != nil {
-						return err
-					}
+					owner = userName
+				}
+				if err := chownTo(macLogDir, owner); err != nil {
+					return err
 				}
 			}
 			warnAboutInstall(cmd.ErrOrStderr(), dir)
