@@ -78,7 +78,7 @@ func TestRunRecoversFromAnInvalidConfigAtStartup(t *testing.T) {
 		fb := config.Fallback(dir)
 		rec := events.NewRecorder(10)
 		log, setLevel := newLogger(fb.Config.Log, testLog{t}, rec)
-		run(ctx, func() {}, fb, false, log, setLevel, rec)
+		run(ctx, func() {}, make(chan os.Signal), fb, false, log, setLevel, rec)
 	}()
 	defer func() { cancel(); <-done }()
 

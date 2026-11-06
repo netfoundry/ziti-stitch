@@ -78,6 +78,12 @@ immediately.`,
 			if enrollFor != "" && enrollDir == "" {
 				return errors.New("--enroll-for needs --enroll-from")
 			}
+			// Trapped before enrolling, which can take minutes: a reload
+			// sent meanwhile (systemctl reload) must not kill the process.
+			// SIGHUP never arrives on Windows; the watcher covers it there.
+			hup := make(chan os.Signal, 1)
+			signal.Notify(hup, syscall.SIGHUP)
+			defer signal.Stop(hup)
 			if enrollDir != "" {
 				d, unlock, err := lockDir(dir, true)
 				if err != nil {
@@ -121,7 +127,7 @@ immediately.`,
 			// its own API, not signals.
 			if runtime.GOOS == "windows" && !service.Interactive() {
 				s, err := service.New(&program{run: func(ctx context.Context) {
-					run(ctx, func() {}, d, loadErr == nil, log, setLevel, rec)
+					run(ctx, func() {}, hup, d, loadErr == nil, log, setLevel, rec)
 				}}, &service.Config{Name: serviceName})
 				if err != nil {
 					return err
@@ -130,7 +136,7 @@ immediately.`,
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			run(ctx, stop, d, loadErr == nil, log, setLevel, rec)
+			run(ctx, stop, hup, d, loadErr == nil, log, setLevel, rec)
 			return nil
 		},
 	}
@@ -180,8 +186,8 @@ func (f *fallbackWriter) Write(p []byte) (int, error) {
 // shuts down. valid says whether d is the configuration on disk, or a
 // stand-in for one that did not load. stopSignals is called once shutdown
 // starts so that a second interrupt gets the default behavior and kills
-// the process.
-func run(ctx context.Context, stopSignals func(), d *config.Dir, valid bool, log *slog.Logger, setLevel func(string), rec *events.Recorder) {
+// the process. A SIGHUP on hup forces a reload.
+func run(ctx context.Context, stopSignals func(), hup <-chan os.Signal, d *config.Dir, valid bool, log *slog.Logger, setLevel func(string), rec *events.Recorder) {
 	// Watch before anything starts or answers, so that no change made from
 	// then on is missed: once the health probes answer, a change is seen.
 	reload := make(chan struct{}, 1)
@@ -191,10 +197,6 @@ func run(ctx context.Context, stopSignals func(), d *config.Dir, valid bool, log
 		default: // one is already pending
 		}
 	}
-	// SIGHUP never arrives on Windows; the watcher covers it there.
-	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
-	defer signal.Stop(hup)
 	if err := watchConfig(ctx, d.Path, d.Source, requestReload, log); err != nil {
 		log.Warn("cannot watch the config directory; send SIGHUP to apply changes", "error", err)
 	}
