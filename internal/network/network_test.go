@@ -51,6 +51,29 @@ const sampleIdentity = `{
   "enableHa": true
 }`
 
+// Overdue is two renewal checks past due: a running ziti-stitch would have
+// renewed by then. A 30-day certificate is due with 10 days left.
+func TestRenewalOverdue(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	month := start.AddDate(0, 0, 30)
+	due := month.Add(-10 * 24 * time.Hour)
+	for _, tt := range []struct {
+		name string
+		now  time.Time
+		want bool
+	}{
+		{"14 days left, not yet due", month.Add(-14 * 24 * time.Hour), false},
+		{"just due", due, false},
+		{"an hour past due", due.Add(time.Hour), false},
+		{"three hours past due", due.Add(3 * time.Hour), true},
+		{"expired", month.Add(time.Hour), true},
+	} {
+		if got := RenewalOverdue(start, month, tt.now); got != tt.want {
+			t.Errorf("%s: RenewalOverdue = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestRenewalDue(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	year := start.AddDate(1, 0, 0)

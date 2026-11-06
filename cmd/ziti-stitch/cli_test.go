@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -266,6 +267,23 @@ func TestValidateOffline(t *testing.T) {
 	out, _, err := cli(t, dir, "validate", "--offline")
 	if err == nil || !strings.Contains(out, "problem  network soon: certificate expires") {
 		t.Errorf("expiring certificate not flagged: err = %v\n%s", err, out)
+	}
+}
+
+// The web UI's network is in use even when no stitch uses it, as the
+// runner has it.
+func TestUsedNetworksIncludeTheWebUIs(t *testing.T) {
+	d := &config.Dir{
+		Networks: []config.Network{{Name: "acme"}, {Name: "admin"}, {Name: "partner"}, {Name: "spare"}},
+		Stitches: []config.Stitch{{Name: "s", From: config.Ingress{Network: "acme"}, To: config.Egress{Network: "partner"}}},
+	}
+	d.Config.Web.Ziti = &config.WebZiti{Network: "admin", Service: "stitch-admin"}
+	var got []string
+	for _, n := range usedNetworks(d) {
+		got = append(got, n.Name)
+	}
+	if want := []string{"acme", "admin", "partner"}; !slices.Equal(got, want) {
+		t.Errorf("used networks = %v, want %v", got, want)
 	}
 }
 

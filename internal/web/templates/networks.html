@@ -47,7 +47,7 @@
   {{end}}
   {{if .Findings}}
   <h3>Stitches using this network</h3>
-  <ul class="findings">{{range .Findings}}<li>{{if eq .Severity 0}}<span class="pill ok">ok</span>{{else}}<span class="pill bad">problem</span>{{end}} <strong>{{.Stitch}}</strong>: {{.Message}}</li>{{end}}</ul>
+  <ul class="findings">{{range .Findings}}<li>{{if eq .Severity 0}}<span class="pill ok">ok</span>{{else}}<span class="pill bad">problem</span>{{end}} <strong>{{.Subject}}</strong>: {{.Message}}</li>{{end}}</ul>
   {{end}}
   {{end}}
 </div>

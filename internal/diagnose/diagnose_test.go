@@ -108,3 +108,25 @@ func TestStitchesSkipsUnreportedNetworks(t *testing.T) {
 		t.Errorf("findings = %+v, want only the acme end", got)
 	}
 }
+
+func TestWebUI(t *testing.T) {
+	z := &config.WebZiti{Network: "acme", Service: "stitch-admin"}
+	bound := map[string]NetworkReport{"acme": {Name: "acme", Services: map[string]Access{"stitch-admin": {Bind: true}}}}
+	dialOnly := map[string]NetworkReport{"acme": {Name: "acme", Services: map[string]Access{"stitch-admin": {Dial: true}}}}
+
+	if got := WebUI(nil, bound); got != nil {
+		t.Errorf("UI off: findings = %+v, want none", got)
+	}
+	if got := WebUI(z, map[string]NetworkReport{}); got != nil {
+		t.Errorf("no report for its network: findings = %+v, want none", got)
+	}
+	if got := WebUI(z, bound); len(got) != 1 || got[0].Severity != OK || got[0].Subject() != "web UI" {
+		t.Errorf("with Bind: findings = %+v, want one OK for the web UI", got)
+	}
+	if got := WebUI(z, dialOnly); len(got) != 1 || got[0].Severity != Problem || !strings.Contains(got[0].Message, "Bind") {
+		t.Errorf("without Bind: findings = %+v, want a problem naming Bind", got)
+	}
+	if s := (Finding{Stitch: "billing"}).Subject(); s != "stitch billing" {
+		t.Errorf("a stitch's subject = %q", s)
+	}
+}

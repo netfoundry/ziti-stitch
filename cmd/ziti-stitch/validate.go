@@ -28,19 +28,15 @@ import (
 	"github.com/netfoundry/ziti-stitch/internal/network"
 )
 
-// certWarning is how far ahead validate warns about a certificate that has
-// not renewed. ziti-stitch renews 30 days ahead while running, so a
-// certificate this close to expiry means it has not been.
-const certWarning = 14 * 24 * time.Hour
-
 func newValidateCmd(configDir *string) *cobra.Command {
 	var offline bool
 	cmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Check the configuration and what each identity is allowed to do",
 		Long: `Check the configuration, then authenticate every network used by an enabled
-stitch and confirm that its identity has Bind on the services it binds and
-Dial on the services it dials. Problems name the policy that is missing.
+stitch or the web UI and confirm that its identity has Bind on the services
+it binds and Dial on the services it dials. Problems name the policy that is
+missing.
 
 --offline checks only the configuration and certificate expiry.`,
 		Args: cobra.NoArgs,
@@ -65,9 +61,9 @@ Dial on the services it dials. Problems name the policy that is missing.
 				case err != nil:
 					problems++
 					fmt.Fprintf(out, "problem  network %s: %v\n", n.Name, err)
-				case !info.CertNotAfter.IsZero() && info.CertNotAfter.Sub(now) < certWarning:
+				case !info.CertNotAfter.IsZero() && network.RenewalOverdue(info.CertNotBefore, info.CertNotAfter, now):
 					problems++
-					fmt.Fprintf(out, "problem  network %s: certificate expires %s\n", n.Name, network.DescribeExpiry(info.CertNotAfter, now))
+					fmt.Fprintf(out, "problem  network %s: certificate expires %s and has not renewed; ziti-stitch renews it while running\n", n.Name, network.DescribeExpiry(info.CertNotAfter, now))
 				}
 			}
 			if offline {
@@ -78,7 +74,7 @@ Dial on the services it dials. Problems name the policy that is missing.
 			for _, n := range used {
 				reports[n.Name] = diagnose.Probe(n.Name, n.IdentityFile)
 			}
-			problems += printFindings(out, diagnose.Stitches(d.Stitches, reports))
+			problems += printFindings(out, append(diagnose.Stitches(d.Stitches, reports), diagnose.WebUI(d.Config.Web.Ziti, reports)...))
 			return problemsErr(problems)
 		},
 	}
@@ -86,7 +82,9 @@ Dial on the services it dials. Problems name the policy that is missing.
 	return cmd
 }
 
-// usedNetworks returns the networks enabled stitches use, in name order.
+// usedNetworks returns the networks a running ziti-stitch uses, as the
+// runner decides: those of enabled stitches, and the web UI's over Ziti.
+// They are in name order.
 func usedNetworks(d *config.Dir) []config.Network {
 	used := map[string]bool{}
 	for _, s := range d.Stitches {
@@ -94,6 +92,9 @@ func usedNetworks(d *config.Dir) []config.Network {
 			used[s.From.Network] = true
 			used[s.To.Network] = true
 		}
+	}
+	if z := d.Config.Web.Ziti; z != nil {
+		used[z.Network] = true
 	}
 	var nets []config.Network
 	for _, n := range d.Networks {
@@ -113,7 +114,7 @@ func printFindings(w io.Writer, findings []diagnose.Finding) int {
 			label = "problem "
 			problems++
 		}
-		fmt.Fprintf(w, "%s stitch %s: %s\n", label, f.Stitch, f.Message)
+		fmt.Fprintf(w, "%s %s: %s\n", label, f.Subject(), f.Message)
 	}
 	return problems
 }

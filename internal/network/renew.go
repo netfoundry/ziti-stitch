@@ -65,6 +65,14 @@ func renewalDue(notBefore, notAfter, now time.Time) bool {
 	return !now.Before(notAfter.Add(-window))
 }
 
+// RenewalOverdue reports whether a certificate valid from notBefore to
+// notAfter should have been renewed by now, had ziti-stitch been running:
+// it checks every renewCheckInterval, so it is overdue two intervals past
+// the point where renewal is due.
+func RenewalOverdue(notBefore, notAfter, now time.Time) bool {
+	return renewalDue(notBefore, notAfter, now.Add(-2*renewCheckInterval))
+}
+
 // keepRenewed checks the certificate now and every renewCheckInterval,
 // renewing it when it nears expiry or the controller asks for it.
 func (n *Network) keepRenewed(ctx context.Context, zctx ziti.Context) {

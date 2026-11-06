@@ -91,11 +91,19 @@ const (
 	Problem
 )
 
-// Finding is one result of checking a stitch.
+// Finding is one result of checking a stitch, or the web UI's service.
 type Finding struct {
 	Severity Severity
-	Stitch   string
+	Stitch   string // the stitch checked; empty for the web UI's service
 	Message  string
+}
+
+// Subject is what f is about, for display.
+func (f Finding) Subject() string {
+	if f.Stitch == "" {
+		return "web UI"
+	}
+	return "stitch " + f.Stitch
 }
 
 // Stitches checks every enabled stitch: its ingress identity needs Bind on
@@ -116,6 +124,20 @@ func Stitches(stitches []config.Stitch, reports map[string]NetworkReport) []Find
 		}
 	}
 	return findings
+}
+
+// WebUI checks that the identity serving the web UI over Ziti, if it is
+// on, has Bind on the UI's service. It is skipped when reports has no
+// report for that network.
+func WebUI(z *config.WebZiti, reports map[string]NetworkReport) []Finding {
+	if z == nil {
+		return nil
+	}
+	r, ok := reports[z.Network]
+	if !ok {
+		return nil
+	}
+	return []Finding{checkEndpoint("", r, z.Network, z.Service, "Bind")}
 }
 
 func checkEndpoint(stitch string, r NetworkReport, network, service, need string) Finding {

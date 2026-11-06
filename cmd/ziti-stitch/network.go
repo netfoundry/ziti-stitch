@@ -451,7 +451,8 @@ Problems name the policy the network admin needs to add.`,
 				fmt.Fprintln(out, "(no services visible to this identity)")
 			}
 
-			findings := diagnose.Stitches(d.Stitches, map[string]diagnose.NetworkReport{n.Name: r})
+			reports := map[string]diagnose.NetworkReport{n.Name: r}
+			findings := append(diagnose.Stitches(d.Stitches, reports), diagnose.WebUI(d.Config.Web.Ziti, reports)...)
 			if len(findings) > 0 {
 				fmt.Fprintln(out)
 			}

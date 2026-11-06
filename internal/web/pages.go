@@ -469,7 +469,8 @@ func (s *Server) handleNetworkTest(w http.ResponseWriter, r *http.Request, v *vi
 	}
 	slices.SortFunc(test.Services, func(a, b serviceRow) int { return strings.Compare(a.Name, b.Name) })
 	if report.Err == nil {
-		test.Findings = diagnose.Stitches(st.Dir.Stitches, map[string]diagnose.NetworkReport{name: report})
+		reports := map[string]diagnose.NetworkReport{name: report}
+		test.Findings = append(diagnose.Stitches(st.Dir.Stitches, reports), diagnose.WebUI(st.Dir.Config.Web.Ziti, reports)...)
 	}
 	v.Title, v.Nav, v.Data = "Networks", "networks", networksData{state: st, Test: test}
 	if isHTMX(r) {
