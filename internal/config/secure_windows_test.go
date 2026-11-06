@@ -38,11 +38,95 @@ func TestEnsureDirRestrictsTheACL(t *testing.T) {
 	if err := os.WriteFile(file, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"S-1-5-18", "S-1-5-32-544"} // SYSTEM, Administrators
+	want := []string{"S-1-3-4", "S-1-5-18", "S-1-5-32-544"} // Owner Rights (read only), SYSTEM, Administrators
 	for _, p := range []string{dir, file} {
 		if got := allowedSIDs(t, p); !slices.Equal(got, want) {
 			t.Errorf("%s: access granted to %v, want only %v", p, got, want)
 		}
+	}
+	// Run again on the directory as it now is, as every start does.
+	if err := EnsureDir(dir); err != nil {
+		t.Errorf("a second EnsureDir: %v", err)
+	}
+	sd, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner, _, err := sd.Owner(); err != nil || !owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) {
+		t.Errorf("owner after EnsureDir = %v, %v; want Administrators", owner, err)
+	}
+}
+
+func TestTrustedOwner(t *testing.T) {
+	sid := func(k windows.WELL_KNOWN_SID_TYPE) *windows.SID {
+		s, err := windows.CreateWellKnownSid(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	self := user.User.Sid
+	for _, c := range []struct {
+		name  string
+		owner *windows.SID
+		want  bool
+	}{
+		{"SYSTEM", sid(windows.WinLocalSystemSid), true},
+		{"Administrators", sid(windows.WinBuiltinAdministratorsSid), true},
+		{"this process's user", self, true},
+		{"Users", sid(windows.WinBuiltinUsersSid), false},
+		{"Everyone", sid(windows.WinWorldSid), false},
+	} {
+		if got := trustedOwner(c.owner, self); got != c.want {
+			t.Errorf("owned by %s: trusted = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestIsAdministrator(t *testing.T) {
+	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := windows.GetCurrentProcessToken()
+	elevated, err := token.IsMember(admins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := token.GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := isAdministrator(user.User.Sid); err != nil || (elevated && !got) {
+		t.Errorf("this process's user, an elevated administrator %v: isAdministrator = %v, %v", elevated, got, err)
+	}
+	users, err := windows.CreateWellKnownSid(windows.WinBuiltinUsersSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := isAdministrator(users); err != nil || got {
+		t.Errorf("the Users group: isAdministrator = %v, %v; want false", got, err)
+	}
+}
+
+// A directory link is refused rather than secured: what it points at may
+// belong to someone else.
+func TestEnsureDirRefusesADirectoryLink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "cfg")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("cannot create a directory link here: %v", err)
+	}
+	if err := EnsureDir(link); err == nil {
+		t.Error("EnsureDir secured a directory link")
 	}
 }
 
