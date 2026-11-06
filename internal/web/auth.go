@@ -61,11 +61,26 @@ func NewLoginToken(dir string) (string, error) {
 	if err := os.MkdirAll(logins, privateDirPerm); err != nil {
 		return "", err
 	}
+	// Run as root, writing through a link that the service's user put
+	// there would write wherever it points.
+	for _, d := range []string{filepath.Dir(logins), logins} {
+		if fi, err := os.Lstat(d); err != nil {
+			return "", err
+		} else if !fi.IsDir() {
+			return "", fmt.Errorf("%s is not a directory", d)
+		}
+	}
 	exp := strconv.FormatInt(time.Now().Add(loginLifetime).Unix(), 10)
 	if err := atomicfile.WriteFile(filepath.Join(logins, tokenFileName(token)), []byte(exp), privateFilePerm); err != nil {
 		return "", err
 	}
 	return token, nil
+}
+
+// isTokenFileName reports whether name is one tokenFileName makes.
+func isTokenFileName(name string) bool {
+	b, err := hex.DecodeString(name)
+	return err == nil && len(b) == sha256.Size && hex.EncodeToString(b) == name
 }
 
 // tokenFileName stores a token by its hash, so the directory listing does
@@ -103,6 +118,11 @@ func sweepExpiredTokens(dir string, now time.Time) {
 		return
 	}
 	for _, e := range entries {
+		// Only token files: another process's token may be on its way in,
+		// under atomicfile's temporary name.
+		if !isTokenFileName(e.Name()) {
+			continue
+		}
 		path := filepath.Join(dir, e.Name())
 		raw, err := os.ReadFile(path)
 		if err != nil {

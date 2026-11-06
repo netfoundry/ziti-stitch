@@ -97,12 +97,17 @@ func TestSweepExpiredTokens(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("valid", strconv.FormatInt(now.Add(time.Minute).Unix(), 10))
-	write("expired", strconv.FormatInt(now.Add(-time.Minute).Unix(), 10))
-	write("garbage", "not a time")
+	valid, expired, garbage := tokenFileName("valid"), tokenFileName("expired"), tokenFileName("garbage")
+	// A token another process is still writing, under atomicfile's
+	// temporary name: not the sweep's to touch.
+	inFlight := "." + tokenFileName("new") + ".tmp-123"
+	write(valid, strconv.FormatInt(now.Add(time.Minute).Unix(), 10))
+	write(expired, strconv.FormatInt(now.Add(-time.Minute).Unix(), 10))
+	write(garbage, "not a time")
+	write(inFlight, "")
 
 	sweepExpiredTokens(dir, now)
-	for name, kept := range map[string]bool{"valid": true, "expired": false, "garbage": false} {
+	for name, kept := range map[string]bool{valid: true, expired: false, garbage: false, inFlight: true} {
 		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != kept {
 			t.Errorf("%s: kept = %v, want %v", name, err == nil, kept)
 		}

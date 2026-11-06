@@ -283,6 +283,25 @@ func TestLoginLinkWorksOnce(t *testing.T) {
 	}
 }
 
+// Writing a login token through a link would write wherever it points,
+// which matters when root runs web login on a service user's directory.
+func TestNewLoginTokenRefusesALinkedDir(t *testing.T) {
+	dir := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, webDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, webDirName, loginDirName)); err != nil {
+		t.Skipf("cannot create a link here: %v", err)
+	}
+	if _, err := NewLoginToken(dir); err == nil {
+		t.Error("NewLoginToken wrote through a link")
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Errorf("%d files written where the link points", len(entries))
+	}
+}
+
 func TestExpiredLoginLinkIsRefusedAndSwept(t *testing.T) {
 	e := newEnv(t)
 	token, err := NewLoginToken(e.dir)
