@@ -74,6 +74,11 @@ type Stitch struct {
 	conns    sync.WaitGroup // connections in flight, for draining
 	handling atomic.Int64   // connections in flight, for max_connections
 
+	// dials is cancelled by CloseConnections, ending egress dials still in
+	// progress along with the connections already open.
+	dials       context.Context
+	cancelDials context.CancelFunc
+
 	// probeAppData is the ingress app data the gate's probe builds its
 	// own from, because a tunneler host on the egress side may reject a
 	// dial that carries none. It is that of the last connection whose
@@ -113,6 +118,7 @@ func New(cfg config.Stitch, from, to Network, log *slog.Logger) *Stitch {
 			"from", from.Name()+":"+cfg.From.Service,
 			"to", to.Name()+":"+cfg.To.Service),
 	}
+	s.dials, s.cancelDials = context.WithCancel(context.Background())
 	s.terms.Store(termsOf(cfg.From))
 	return s
 }
@@ -203,9 +209,10 @@ func (s *Stitch) Wait() {
 }
 
 // CloseConnections closes the stitch's open connections, and any that open
-// from now on, and returns how many were open. Call it after Run has
-// returned, to stop draining.
+// from now on, cancels egress dials in progress, and returns how many
+// connections were open. Call it after Run has returned, to stop draining.
 func (s *Stitch) CloseConnections() int {
+	s.cancelDials()
 	return s.track.closeAll()
 }
 
@@ -311,10 +318,13 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		return
 	}
 
-	out, err := zB.DialWithOptions(s.cfg.To.Service, &ziti.DialOptions{
-		ConnectTimeout: s.cfg.To.ConnectTimeout,
-		AppData:        appData,
-	})
+	out, err := zB.DialContextWithOptions(s.dials, s.cfg.To.Service, network.DialOptions(s.cfg.To.ConnectTimeout, appData))
+	if err != nil && s.dials.Err() != nil {
+		// CloseConnections ended it: the egress side is not at fault.
+		log.Info("connection refused: the stitch stopped while dialing the egress service")
+		refuse(in, errUpstreamUnavailable)
+		return
+	}
 	if err != nil {
 		log.Warn("connection failed: cannot reach the egress service", "error", err, "dial_time", time.Since(start))
 		refuse(in, errUpstreamUnavailable)
@@ -340,10 +350,7 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 		ACircuit:           in.GetCircuitId(),
 		BCircuit:           out.GetCircuitId(),
 		Opened:             start,
-	}, func() {
-		_ = in.Close()
-		_ = out.Close()
-	})
+	}, func() { closeQuickly(in, out) })
 	defer s.track.closed(id)
 	err = splice(in, out, s.cfg.IdleTimeout, &live.toEgress, &live.toIngress)
 	attrs := []any{"bytes_to_egress", live.toEgress.Load(), "bytes_to_ingress", live.toIngress.Load(), "duration", time.Since(start)}
@@ -357,9 +364,13 @@ func (s *Stitch) handle(in edge.Conn, zB ziti.Context, g *gate) {
 // registered the connection with the router channel before handing it to
 // us, and CompleteAcceptFailed only answers the router, so it must be
 // closed as well or it stays registered until the channel goes.
+//
+// It is closed in the background: with SDK flow control, closing one whose
+// circuit never started waits until the SDK gives up on the circuit (three
+// minutes in v1.9.1). The dialer has its answer already.
 func refuse(in edge.Conn, reason error) {
 	in.CompleteAcceptFailed(reason)
-	_ = in.Close()
+	go func() { _ = in.Close() }()
 }
 
 // egressReachable is the gate's probe. A service with no terminators is
@@ -387,10 +398,7 @@ func (s *Stitch) egressReachable(ctx context.Context, zB ziti.Context) bool {
 	if err != nil {
 		return false // not reached: in passed egressAppData before it was kept
 	}
-	c, err := zB.DialContextWithOptions(ctx, s.cfg.To.Service, &ziti.DialOptions{
-		ConnectTimeout: s.cfg.To.ConnectTimeout,
-		AppData:        appData,
-	})
+	c, err := zB.DialContextWithOptions(ctx, s.cfg.To.Service, network.DialOptions(s.cfg.To.ConnectTimeout, appData))
 	if err != nil {
 		return false
 	}

@@ -35,8 +35,23 @@ type establishedCounter interface {
 	GetEstablishedCount() uint
 }
 
-// Listen binds service and waits up to timeout for a router to confirm a
-// terminator, closing the listener if none does.
+// sdkFlowControl is set on every bind and dial. It moves flow control into
+// the SDK, per connection. Without it (the SDK's default in v1.9.1), each
+// connection has a 4-message inbound queue, and a full one blocks the read
+// loop of the whole router connection: one connection whose far end stops
+// reading freezes every other connection through that router. Routers
+// support it from OpenZiti 1.6.0, and one that does not answer for it
+// leaves the connection on the router's flow control.
+var sdkFlowControl = true
+
+// DialOptions returns options for dialing a service, with SDK flow control
+// on.
+func DialOptions(connectTimeout time.Duration, appData []byte) *ziti.DialOptions {
+	return &ziti.DialOptions{ConnectTimeout: connectTimeout, AppData: appData, SdkFlowControl: &sdkFlowControl}
+}
+
+// Listen binds service, with SDK flow control on, and waits up to timeout
+// for a router to confirm a terminator, closing the listener if none does.
 //
 // It does what ListenOptions.WaitForNEstablishedListeners does, because the
 // SDK's own wait (v1.9.1) can miss the confirmation: when a router's
@@ -46,6 +61,7 @@ type establishedCounter interface {
 func Listen(ctx context.Context, zctx ziti.Context, service string, opts *ziti.ListenOptions, timeout time.Duration) (edge.Listener, error) {
 	o := *opts
 	o.WaitForNEstablishedListeners = 0
+	o.SdkFlowControl = &sdkFlowControl
 	l, err := zctx.ListenWithOptions(service, &o)
 	if err != nil {
 		return nil, err

@@ -229,6 +229,37 @@ func TestIdleCheckInterval(t *testing.T) {
 	}
 }
 
+// stuckCloser's Close blocks until release is closed, as an SDK connection's
+// does when its far end has stopped reading.
+type stuckCloser struct{ release chan struct{} }
+
+func (c stuckCloser) Close() error { <-c.release; return nil }
+
+type closeFlag struct{ closed atomic.Bool }
+
+func (c *closeFlag) Close() error { c.closed.Store(true); return nil }
+
+// A close that blocks does not hold up the rest, nor the caller for long.
+func TestCloseQuicklyDoesNotWaitOnAStuckClose(t *testing.T) {
+	stuck := stuckCloser{release: make(chan struct{})}
+	defer close(stuck.release)
+	ok := &closeFlag{}
+	start := time.Now()
+	closeQuickly(stuck, ok)
+	if d := time.Since(start); d < closeWait || d > 2*closeWait {
+		t.Errorf("returned after %v, want about %v", d, closeWait)
+	}
+	if !ok.closed.Load() {
+		t.Error("the connection that could close was not closed")
+	}
+
+	start = time.Now()
+	closeQuickly(&closeFlag{}, &closeFlag{})
+	if d := time.Since(start); d > closeWait/2 {
+		t.Errorf("closing two that close at once took %v", d)
+	}
+}
+
 // closedEdge is a Ziti connection after its far end closed it outright or
 // its router went away: the SDK has closed it, and Read reports EOF just
 // as for a half-close.

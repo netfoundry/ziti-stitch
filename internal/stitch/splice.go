@@ -54,15 +54,11 @@ type halfConn interface {
 // Ziti connection closed outright rather than half-closed, or lost with
 // its router, closes both, as does an error in either direction. With
 // idle > 0, so does no traffic in either direction for that long. Both
-// connections are closed when splice returns.
+// connections are closed when splice returns, or still closing if that
+// blocks: see closeQuickly.
 func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err error) {
 	var closeOnce sync.Once
-	closeBoth := func() {
-		closeOnce.Do(func() {
-			_ = a.Close()
-			_ = b.Close()
-		})
-	}
+	closeBoth := func() { closeOnce.Do(func() { closeQuickly(a, b) }) }
 	defer closeBoth()
 
 	act := &activity{start: time.Now()}
@@ -111,6 +107,33 @@ func splice(a, b halfConn, idle time.Duration, toB, toA *atomic.Int64) (err erro
 		err = errIdle
 	}
 	return err
+}
+
+// closeWait is how long closeQuickly waits for connections to close.
+const closeWait = time.Second
+
+// closeQuickly closes cs concurrently and waits at most closeWait. Closing
+// a Ziti connection whose far end stopped reading can block: the SDK
+// (v1.9.1) queues its EOF behind the full send window with no deadline,
+// before it would start the timer that gives up on the window. Whatever
+// has not closed in time goes on closing in the background, until the
+// window moves or the router connection goes.
+func closeQuickly(cs ...io.Closer) {
+	done := make(chan struct{}, len(cs))
+	for _, c := range cs {
+		go func() {
+			_ = c.Close()
+			done <- struct{}{}
+		}()
+	}
+	timeout := time.After(closeWait)
+	for range cs {
+		select {
+		case <-done:
+		case <-timeout:
+			return
+		}
+	}
 }
 
 // activity is when bytes last moved, kept as the time since start so that

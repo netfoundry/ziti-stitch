@@ -149,6 +149,7 @@ up() {
   zt a create service e2e -a stitched >/dev/null # for go test -tags e2e only
   zt a create service stitch-admin -a stitched >/dev/null # the web UI over Ziti, ditto
   zt a create service ha -a stitched >/dev/null # two instances, ditto
+  zt a create service stall -a stitched >/dev/null # a host that stops reading, ditto
   zt a create service-policy stitch-hosts-bind Bind --identity-roles '#stitch-hosts' --service-roles '#stitched' >/dev/null
   zt a create service-policy stitch-clients-dial Dial --identity-roles '#stitch-clients' --service-roles '#stitched' >/dev/null
   create_identity a stitch-a stitch-hosts
@@ -159,6 +160,7 @@ up() {
   zt b create service echo -a echo >/dev/null
   zt b create service e2e -a echo >/dev/null # for go test -tags e2e only
   zt b create service ha -a echo >/dev/null # ditto
+  zt b create service stall -a echo >/dev/null # ditto
   zt b create service-policy echo-hosts-bind Bind --identity-roles '#echo-hosts' --service-roles '#echo' >/dev/null
   zt b create service-policy stitch-dialers-dial Dial --identity-roles '#stitch-dialers' --service-roles '#echo,#renew' >/dev/null
   zt b create service renew -a renew >/dev/null

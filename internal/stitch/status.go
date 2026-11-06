@@ -128,7 +128,8 @@ func (t *tracker) opened(info ConnStatus, closer func()) (uint64, *liveConn) {
 }
 
 // closeAll closes every open connection, and any opened later, and
-// returns how many were open.
+// returns how many were open. They are closed concurrently, since each
+// closer can take up to closeWait.
 func (t *tracker) closeAll() int {
 	t.mu.Lock()
 	t.closing = true
@@ -137,9 +138,11 @@ func (t *tracker) closeAll() int {
 		open = append(open, c)
 	}
 	t.mu.Unlock()
+	var wg sync.WaitGroup
 	for _, c := range open {
-		c.closer()
+		wg.Go(c.closer)
 	}
+	wg.Wait()
 	return len(open)
 }
 
