@@ -99,6 +99,13 @@ immediately.`, drainTimeout),
 			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 				return fmt.Errorf("no config directory at %s; start with: ziti-stitch enroll --jwt <file>", dir)
 			}
+			// Every start, not only on enroll and install: a directory made
+			// before these checks existed gets them too, and one that is
+			// not safe to use (see config.EnsureDir) is refused before
+			// anything, a log file included, is written in it.
+			if err := config.EnsureDir(dir); err != nil {
+				return err
+			}
 			atomicfile.RemoveStale(filepath.Join(dir, config.NetworksDirName), staleTempAge)
 
 			// An invalid config does not stop us: under a service manager

@@ -33,6 +33,7 @@ var version = "dev"
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		reportToServiceManager(err)
 		os.Exit(1)
 	}
 }

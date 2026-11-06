@@ -41,7 +41,8 @@ const stitchesFilePerm = 0o644
 
 // EnsureDir creates the config directory at path and its networks
 // directory, if they do not exist, and makes sure only the owner (on
-// Windows: SYSTEM and Administrators) can read them.
+// Windows: SYSTEM and Administrators) can read them. It refuses one that
+// is not safe to use: see securePrivateDir. run calls it on every start.
 func EnsureDir(path string) error {
 	if err := os.MkdirAll(filepath.Join(path, NetworksDirName), dirPerm); err != nil {
 		return err

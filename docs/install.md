@@ -74,7 +74,7 @@ ziti-stitch service install
 ziti-stitch service start
 ```
 
-- Config: `%ProgramData%\ziti-stitch`. Its access list is replaced so that only SYSTEM and Administrators can read it; the identity files hold private keys.
+- Config: `%ProgramData%\ziti-stitch`. Its access list is replaced so that only SYSTEM and Administrators can read it; the identity files hold private keys. A folder that a user other than an administrator created is refused, at every start: take ownership of it as an administrator, or delete it. A service that cannot start says why in the Windows event log (Application, source ziti-stitch).
 - Logs: `%ProgramData%\ziti-stitch\logs\ziti-stitch.log` (rotated at 10 MB, 5 kept).
 - The service runs as LocalSystem, starts at boot and restarts 5 seconds after a failure.
 - There is no SIGHUP on Windows; config changes are picked up from the files directly.

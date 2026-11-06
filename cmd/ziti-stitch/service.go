@@ -187,6 +187,24 @@ func newControlService() (service.Service, error) {
 	return service.New(controlOnly{}, &service.Config{Name: serviceName})
 }
 
+// reportToServiceManager writes err to the Windows event log when run
+// under the service control manager, where stderr goes nowhere: a run that
+// fails before it has a log file, or with one it must not write (a config
+// directory that is refused), would otherwise fail without a word.
+func reportToServiceManager(err error) {
+	if runtime.GOOS != "windows" || service.Interactive() {
+		return
+	}
+	s, serr := newControlService()
+	if serr != nil {
+		return
+	}
+	// The event source is registered when the service is installed.
+	if l, lerr := s.SystemLogger(nil); lerr == nil {
+		_ = l.Error(err.Error())
+	}
+}
+
 func newServiceInstallCmd(configDir *string) *cobra.Command {
 	var userName string
 	cmd := &cobra.Command{

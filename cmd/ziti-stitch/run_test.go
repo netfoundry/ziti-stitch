@@ -18,10 +18,12 @@ package main
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -110,4 +112,87 @@ func TestRunRecoversFromAnInvalidConfigAtStartup(t *testing.T) {
 	writeConfig(listeners)
 	waitFor("fixed config, ready", "http://"+healthAddr+"/readyz", http.StatusOK)
 	waitFor("fixed config, web UI up", "http://"+webAddr+"/login", http.StatusOK)
+}
+
+// startRun runs `ziti-stitch run` on dir and returns a channel that gets
+// its result, and a function that stops it.
+func startRun(t *testing.T, dir string) (<-chan error, context.CancelFunc) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	root := newRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(testLog{t})
+	root.SetArgs([]string{"--config-dir", dir, "run"})
+	done := make(chan error, 1)
+	go func() { done <- root.ExecuteContext(ctx) }()
+	return done, cancel
+}
+
+// An install made before run checked the config directory gets the
+// checks too: one that is not safe to use is refused at start.
+func TestRunRefusesALinkedConfigDir(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(base, "cfg")
+	// Windows refuses the config folder itself as a link, elsewhere its
+	// networks directory.
+	link := dir
+	if runtime.GOOS != "windows" {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		link = filepath.Join(dir, config.NetworksDirName)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("cannot create a directory link here: %v", err)
+	}
+	done, stop := startRun(t, dir)
+	defer stop()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "link") {
+			t.Errorf("run = %v, want it to refuse the link", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run started from a linked config directory")
+	}
+}
+
+// run takes group and other access off an existing config directory, as
+// enroll does, so an install made before that gets it too.
+func TestRunTightensAnExistingConfigDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes do not protect anything on Windows")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	done, stop := startRun(t, dir)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			stop()
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() == 0o700 {
+			break
+		}
+		if time.Now().After(deadline) {
+			stop()
+			t.Fatalf("config directory mode = %v, want 0700", fi.Mode().Perm())
+		}
+	}
+	stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("run = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not stop")
+	}
 }
