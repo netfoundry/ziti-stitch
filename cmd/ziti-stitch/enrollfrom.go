@@ -86,13 +86,20 @@ func enrollFrom(dir, prefix string, d *config.Dir, out io.Writer) error {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		var raw []byte
+		unsaved := unsavedPath(d.Path, name)
 		if ext == ".jwt" {
-			token, err := readToken(path, nil)
-			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
-			}
-			if raw, err = network.Enroll(token); err != nil {
-				return fmt.Errorf("enrolling network %q from %s: %w", name, path, err)
+			// A start that redeemed this token but could not save the
+			// identity kept it: the token works only once.
+			if raw, err = os.ReadFile(unsaved); err == nil {
+				fmt.Fprintf(out, "Using the identity for network %q enrolled earlier from %s.\n", name, path)
+			} else {
+				token, err := readToken(path, nil)
+				if err != nil {
+					return fmt.Errorf("%s: %w", path, err)
+				}
+				if raw, err = network.Enroll(token); err != nil {
+					return fmt.Errorf("enrolling network %q from %s: %w", name, path, err)
+				}
 			}
 		} else {
 			info, err := network.ReadInfo(path)
@@ -107,7 +114,14 @@ func enrollFrom(dir, prefix string, d *config.Dir, out io.Writer) error {
 			}
 		}
 		if err := atomicfile.WriteFile(d.IdentityPath(name), raw, network.IdentityFilePerm); err != nil {
-			return fmt.Errorf("saving the identity for network %q: %w", name, err)
+			err = fmt.Errorf("saving the identity for network %q: %w", name, err)
+			if ext == ".jwt" {
+				return keepUnsaved(d.Path, name, raw, err)
+			}
+			return err
+		}
+		if ext == ".jwt" {
+			_ = os.Remove(unsaved)
 		}
 		added[name] = true
 		verb := "Enrolled"

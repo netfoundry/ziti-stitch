@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,5 +120,40 @@ func TestEnrollFromWithPrefix(t *testing.T) {
 	d, _ = config.Read(dir)
 	if _, ok := d.Network("zs-1.other"); ok {
 		t.Error("the prefix was kept in the network name")
+	}
+}
+
+// A start that redeemed a token but could not save the identity kept it;
+// the next start uses it rather than the spent token.
+func TestEnrollFromUsesAnIdentityKeptUnsaved(t *testing.T) {
+	dir := twoNetworkDir(t)
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "newnet.jwt"), []byte("spent, and not a jwt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := os.ReadFile(identityFile(t, "https://ctrl.newnet.example.com", time.Now().AddDate(1, 0, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := config.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keepUnsaved(d.Path, "newnet", kept, errors.New("saving failed")); err == nil || !strings.Contains(err.Error(), unsavedPath(d.Path, "newnet")) {
+		t.Fatalf("keepUnsaved = %v, want it to name the file", err)
+	}
+	if fi, err := os.Stat(unsavedPath(d.Path, "newnet")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("unsaved identity: %v, %v; want mode 0600", fi, err)
+	}
+
+	var out bytes.Buffer
+	if err := enrollFrom(src, "", d, &out); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(d.IdentityPath("newnet")); err != nil || !bytes.Equal(b, kept) {
+		t.Errorf("the kept identity was not saved: %v", err)
+	}
+	if _, err := os.Stat(unsavedPath(d.Path, "newnet")); !os.IsNotExist(err) {
+		t.Errorf("the unsaved file is still there: %v", err)
 	}
 }

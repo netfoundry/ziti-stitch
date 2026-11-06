@@ -24,6 +24,7 @@ import (
 	"maps"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -135,16 +136,17 @@ from the controller's host name (ctrl.acme.example.com gives "acme").`,
 			// Locked only now: redeeming can take minutes, and every other
 			// change waits on the lock, the running instance's included.
 			// So the name is checked again under it.
+			dir := d.Path
 			d, unlock, err := lockDir(*configDir, false)
 			if err != nil {
-				return fmt.Errorf("enrolled, but saving the identity failed: %w", err)
+				return keepUnsaved(dir, name, raw, fmt.Errorf("enrolled, but saving the identity failed: %w", err))
 			}
 			defer unlock()
 			if _, taken := d.Network(name); taken {
-				return fmt.Errorf("network %q was added while this one enrolled, so the new identity was not saved; its token is spent, so ask for a new one", name)
+				return keepUnsaved(d.Path, name, raw, fmt.Errorf("network %q was added while this one enrolled, so the new identity was not saved", name))
 			}
 			if err := atomicfile.WriteFile(d.IdentityPath(name), raw, network.IdentityFilePerm); err != nil {
-				return fmt.Errorf("enrolled, but saving the identity failed: %w", err)
+				return keepUnsaved(d.Path, name, raw, fmt.Errorf("enrolled, but saving the identity failed: %w", err))
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Enrolled network %q (controller %s).\nIdentity: %s\n", name, controller, d.IdentityPath(name))
 			return err
@@ -154,6 +156,26 @@ from the controller's host name (ctrl.acme.example.com gives "acme").`,
 	cmd.Flags().StringVar(&name, "name", "", "network name (default: derived from the controller host)")
 	_ = cmd.MarkFlagRequired("jwt")
 	return cmd
+}
+
+// unsavedSuffix ends the name of the file in the config directory that
+// keeps an enrolled identity that could not be saved in networks/: its
+// token is spent, so it must not be lost.
+const unsavedSuffix = ".unsaved.json"
+
+func unsavedPath(dir, name string) string {
+	return filepath.Join(dir, name+unsavedSuffix)
+}
+
+// keepUnsaved writes raw, an identity for network name enrolled but not
+// saved, to its unsaved file in dir, and returns cause with where it is.
+// The identity itself (a private key) is never printed.
+func keepUnsaved(dir, name string, raw []byte, cause error) error {
+	p := unsavedPath(dir, name)
+	if err := atomicfile.WriteFile(p, raw, network.IdentityFilePerm); err != nil {
+		return fmt.Errorf("%w; it could not be kept either (%v), and its token is spent, so ask for a new one", cause, err)
+	}
+	return fmt.Errorf("%w; it is kept in %s: add it with ziti-stitch network add --identity %s (with --name, if %q is taken), then delete that file", cause, p, p, name)
 }
 
 func readToken(path string, stdin io.Reader) (string, error) {
