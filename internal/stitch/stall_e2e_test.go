@@ -116,11 +116,14 @@ func TestStalledHostDoesNotFreezeOtherStitches(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// stall writes into the stalled host until nothing more is taken.
-	zStallClient := run("stall-client", "a/client-a.json")
-	stall := func() {
+	// stall writes into the stalled host until nothing more is taken, from
+	// a client context of its own: an older router (1.6.7, not 1.6.21)
+	// leaves the router connection of a client without SDK flow control
+	// frozen after its stalled circuit is closed. That is the client's own
+	// connection, not the stitch's.
+	stall := func(client string) {
 		t.Helper()
-		c, err := zStallClient.DialWithOptions(stallService, &ziti.DialOptions{ConnectTimeout: 10 * time.Second})
+		c, err := run(client, "a/client-a.json").DialWithOptions(stallService, &ziti.DialOptions{ConnectTimeout: 10 * time.Second})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,7 +140,7 @@ func TestStalledHostDoesNotFreezeOtherStitches(t *testing.T) {
 		}
 	}
 
-	stall()
+	stall("stall-client")
 	if n := stalled.Status().Active; n != 1 {
 		t.Fatalf("stalled stitch has %d connections open, want 1", n)
 	}
@@ -160,7 +163,7 @@ func TestStalledHostDoesNotFreezeOtherStitches(t *testing.T) {
 	stalled = startInstance(ctx, stitchOf(stallService, 2*time.Second), acme, partner, log)
 	defer stalled.stop()
 	waitListening(t, stalled)
-	stall()
+	stall("stall-client-2")
 	waitFor(t, 10*time.Second, "the idle timeout to end the stalled connection", func() bool { return stalled.Status().Active == 0 })
 }
 
